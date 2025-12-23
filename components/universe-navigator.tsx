@@ -80,7 +80,7 @@ export function UniverseNavigator() {
                     {/* Active Background */}
                     {isActive && (
                       <motion.div
-                        layoutId="activeBackground"
+                        layoutId="desktopActiveBackground"
                         className={`absolute inset-0 bg-gradient-to-r ${item.color} rounded-lg shadow-lg`}
                         transition={{ type: "spring", stiffness: 400, damping: 30 }}
                       />

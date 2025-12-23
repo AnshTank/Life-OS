@@ -445,7 +445,7 @@ export function ComponentName({ prop1, prop2 }: Props) {
 ### **Development Team**
 - **Lead Developer**: Ansh Tank
 - **Project Type**: Personal Life Management System
-- **Started**: 2024
+- **Started**: Decemeber 2025
 - **Status**: Active Development
 
 ### **Getting Help**

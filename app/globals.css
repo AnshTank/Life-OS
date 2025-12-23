@@ -3,6 +3,35 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Force disable horizontal scrollbar globally */
+html, body {
+  overflow-x: hidden !important;
+  max-width: 100vw !important;
+}
+
+/* Prevent any element from causing horizontal overflow */
+* {
+  max-width: 100% !important;
+}
+
+/* Hide horizontal scrollbars completely */
+::-webkit-scrollbar:horizontal {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Firefox horizontal scrollbar */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
 :root {
   /* Vibrant, energetic gradient system for addictive daily use */
   --background: linear-gradient(135deg, #fef7ff 0%, #f0f9ff 50%, #fefce8 100%);

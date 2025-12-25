@@ -22,6 +22,7 @@ export function UniverseNavigator() {
     { href: "/goals", label: "Goals", icon: Target, color: "from-purple-500 to-pink-500" },
     { href: "/tasks", label: "Tasks", icon: CheckSquare, color: "from-green-500 to-emerald-500" },
     { href: "/progress", label: "Progress", icon: TrendingUp, color: "from-orange-500 to-red-500" },
+    { href: "/ai", label: "AI Friend", icon: Circle, color: "from-indigo-500 to-purple-500" },
     { href: "/money", label: "Money", icon: DollarSign, color: "from-yellow-500 to-amber-500" },
     { href: "/partner", label: "Partner", icon: Users, color: "from-rose-500 to-pink-500" },
   ]

@@ -29,184 +29,204 @@
 
 ---
 
-## 🚀 Priority Features
+## 🚀 **NEXT PHASE: AI & Advanced Features (v3.0)**
 
-### 💰 Money Management Tab (✅ COMPLETED)
-- [✅] **Income Tracking**
-  - Monthly salary/income sources
-  - Freelance/side income
-  - Passive income streams
-  
-- [✅] **Expense Management**
-  - Category-wise expenses (Food, Transport, Entertainment, etc.)
-  - Daily/Weekly/Monthly expense tracking
-  - Receipt uploads and notes
-  
-- [✅] **Budget Planning**
-  - Set monthly budgets per category
-  - Budget vs Actual comparison
-  - Alerts when approaching budget limits
-  
-- [✅] **Savings & Investments**
-  - Savings goals tracking
-  - Investment portfolio overview
-  - Emergency fund tracker
-  
-- [✅] **Financial Analytics**
-  - Spending patterns and trends
-  - Monthly financial reports
-  - Year-over-year comparisons
-  - Net worth tracking
-  
-- [✅] **Bills & Subscriptions**
-  - Recurring payment reminders
-  - Subscription management
-  - Due date notifications
+### 🤖 **AI Assistant & Friend System**
+- [ ] **Personal AI Coach** - Context-aware assistant with access to all user data
+- [ ] **Couple's AI Advisor** - Relationship coaching based on shared goals and patterns
+- [ ] **Smart Recommendations** - AI-powered goal and task suggestions
+- [ ] **Conflict Resolution** - AI mediates partner goal conflicts
+- [ ] **Predictive Analytics** - AI predicts goal completion likelihood
+- [ ] **Habit Formation** - AI guides habit building with personalized strategies
+- [ ] **Date & Gift Suggestions** - AI recommends activities and gifts for partners
+- [ ] **Mood Analysis** - AI tracks emotional patterns and provides insights
 
-- [✅] **Additional Features Implemented**
-  - 7 comprehensive tabs (Overview, Transactions, Budget, Investments, Portfolio, News, Calculators)
-  - Interactive charts with donut, line, and bar visualizations
-  - Financial health scoring (85/100) with detailed breakdown
-  - Portfolio tracking with real-time gains/losses simulation
-  - Market overview with NIFTY, SENSEX, Gold, USD/INR rates
-  - Financial news feed with category filtering
-  - Interactive calculators (SIP, EMI, Goal Planning, Compound Interest, Affordability, Retirement)
-  - Comprehensive expense category analysis
-  - Cash flow tracking with monthly inflow/outflow
-  - Investment growth tracking with YTD returns
+### 👥 **Enhanced Partner System**
+- [ ] **Partner Invitation** - Send invite codes/links to connect partners
+- [ ] **Shared Goals Management** - Joint life goals with dual progress tracking
+- [ ] **Shared Tasks & Calendar** - Household tasks and date planning
+- [ ] **Joint Budget Management** - Combined financial tracking and planning
+- [ ] **Partner Dashboard** - Unified view of couple's progress
+- [ ] **Privacy Controls** - Toggle what to share vs keep private
+- [ ] **Partner Chat System** - Built-in messaging with AI moderation
+- [ ] **Relationship Analytics** - Progress insights and compatibility analysis
+- [ ] **Anniversary Tracking** - Important dates and milestone reminders
+- [ ] **Photo Memories** - Shared timeline of relationship moments
+
+### 🔄 **Real-time Features**
+- [ ] **Live Sync** - Real-time updates across devices and partners
+- [ ] **Push Notifications** - Smart reminders and partner updates
+- [ ] **Offline Mode** - PWA with offline functionality
+- [ ] **Voice Notes** - Audio recordings for tasks and goals
+- [ ] **File Attachments** - Upload files to tasks and goals
+
+### 📅 **Calendar & Time Management**
+- [ ] **Calendar Integration** - Google Calendar, Outlook sync
+- [ ] **Time Tracking** - Pomodoro timer and time logs
+- [ ] **Habit Tracking** - Daily habit streaks and patterns
+- [ ] **Smart Scheduling** - AI-optimized task scheduling
+
+### 🎯 **Advanced Analytics**
+- [ ] **Productivity Insights** - Deep analytics on performance patterns
+- [ ] **Life Balance Scoring** - AI-calculated life area balance
+- [ ] **Relationship Health** - Couple compatibility and growth metrics
+- [ ] **Predictive Modeling** - Goal completion probability
+- [ ] **Custom Reports** - Exportable PDF/CSV reports
 
 ---
 
-## 📋 Dashboard Improvements
-- [ ] Make Life Areas fully customizable (add/remove/edit)
-- [ ] Add drag-and-drop for task prioritization
-- [ ] Implement real-time progress animations
-- [ ] Add daily/weekly/monthly view toggle
-- [ ] Create custom dashboard widgets
+## 📡 **Required APIs & Setup**
+
+### 🆓 **Free APIs (Primary Choice)**
+
+#### **1. Google Gemini AI** 🤖
+- **Purpose**: AI Assistant, Couple's Coach, Smart Recommendations
+- **Free Tier**: 15 requests/minute, 1M tokens/month
+- **Get API**: https://makersuite.google.com/app/apikey
+- **Setup**: Create Google Cloud project → Enable Gemini API → Generate key
+- **Env Variable**: `GOOGLE_GEMINI_API_KEY=your_api_key_here`
+
+#### **2. MongoDB Atlas** 💾
+- **Purpose**: Database for all user data, partnerships, AI context
+- **Free Tier**: 512MB storage, 100 connections
+- **Get API**: https://cloud.mongodb.com
+- **Setup**: Create cluster → Get connection string
+- **Env Variable**: `MONGODB_URI=mongodb+srv://...` ✅ (Already setup)
+
+#### **3. Web Push API** 🔔
+- **Purpose**: Browser notifications for tasks, partner updates
+- **Free**: Built into browsers
+- **Setup**: Generate VAPID keys using web-push library
+- **Env Variables**: 
+  ```
+  VAPID_PUBLIC_KEY=your_public_key
+  VAPID_PRIVATE_KEY=your_private_key
+  VAPID_EMAIL=your_email@domain.com
+  ```
+
+#### **4. ZenQuotes API** 💭
+- **Purpose**: Daily motivational quotes
+- **Free**: Unlimited requests
+- **Get API**: https://zenquotes.io
+- **Setup**: No API key required
+- **Env Variable**: None needed ✅ (Already using)
+
+#### **5. Google Calendar API** 📅
+- **Purpose**: Calendar integration and sync
+- **Free**: 1M requests/day
+- **Get API**: https://console.cloud.google.com
+- **Setup**: Enable Calendar API → Create credentials
+- **Env Variables**:
+  ```
+  GOOGLE_CLIENT_ID=your_client_id
+  GOOGLE_CLIENT_SECRET=your_client_secret
+  ```
+
+### 🔧 **Additional Setup Requirements**
+
+#### **6. NextAuth.js** 🔐
+- **Purpose**: Authentication with Google OAuth
+- **Free**: Open source
+- **Setup**: Configure Google OAuth provider
+- **Env Variables**:
+  ```
+  NEXTAUTH_SECRET=your_random_secret_key
+  NEXTAUTH_URL=http://localhost:3000
+  ```
+
+#### **7. Vercel Analytics** 📊
+- **Purpose**: Performance monitoring
+- **Free**: 100k events/month
+- **Setup**: Enable in Vercel dashboard
+- **Env Variable**: Auto-configured by Vercel
 
 ---
 
-## 🎯 Goals Page Enhancements
-- [x] Add goal categories (home, family, house, travel, personal, cars, technology, etc.)
-- [ ] Add goal milestones/sub-goals
-- [ ] Progress visualization for each goal
-- [ ] Goal templates (common goals)
-- [ ] Goal sharing with accountability partner
-- [ ] Goal achievement celebrations
+## 🔐 **Updated .env.example**
+
+```env
+# Database
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/database
+
+# AI Assistant
+GOOGLE_GEMINI_API_KEY=your_gemini_api_key_here
+
+# Authentication
+NEXTAUTH_SECRET=your_random_secret_key_minimum_32_characters
+NEXTAUTH_URL=http://localhost:3000
+
+# Google OAuth & Calendar
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
+GOOGLE_CLIENT_SECRET=your_google_oauth_client_secret
+
+# Push Notifications
+VAPID_PUBLIC_KEY=your_vapid_public_key
+VAPID_PRIVATE_KEY=your_vapid_private_key
+VAPID_EMAIL=your_email@domain.com
+
+# Optional: Development
+NODE_ENV=development
+```
 
 ---
 
-## ✅ Tasks Page Features
-- [ ] Advanced filtering (by category, priority, date range)
-- [ ] Bulk task operations
-- [ ] Task templates for recurring tasks
-- [ ] Time tracking per task
-- [ ] Task dependencies
-- [ ] Pomodoro timer integration
-- [ ] Task notes and attachments
+## 🎨 **Butter-Smooth UI/UX Enhancements**
+
+### **Performance Optimizations**
+- [ ] **React 19 Concurrent Features** - Suspense, transitions, streaming
+- [ ] **Virtual Scrolling** - For large lists (1000+ items)
+- [ ] **Image Optimization** - Next.js Image with blur placeholders
+- [ ] **Code Splitting** - Route-based and component-based splitting
+- [ ] **Service Worker** - Aggressive caching for instant loads
+
+### **Animation Refinements**
+- [ ] **60fps Animations** - Hardware-accelerated transforms only
+- [ ] **Gesture Recognition** - Swipe, pinch, drag interactions
+- [ ] **Micro-interactions** - Button press feedback, hover states
+- [ ] **Page Transitions** - Shared element transitions
+- [ ] **Loading Choreography** - Staggered content appearance
+
+### **Accessibility & Polish**
+- [ ] **Keyboard Navigation** - Full keyboard accessibility
+- [ ] **Screen Reader Support** - ARIA labels and descriptions
+- [ ] **Reduced Motion** - Respect user preferences
+- [ ] **Focus Management** - Proper focus flow
+- [ ] **Color Contrast** - WCAG AA compliance
 
 ---
 
-## 📊 Progress & Analytics
-- [ ] Custom date range selection
-- [ ] Export reports (PDF/CSV)
-- [ ] Productivity heatmap
-- [ ] Life area balance chart
-- [ ] Goal completion timeline
-- [ ] Habit tracking integration
-- [ ] Weekly/Monthly review prompts
+## 📱 **Mobile Experience**
+- [ ] **Touch Gestures** - Swipe to complete, long press menus
+- [ ] **Haptic Feedback** - Vibration on interactions
+- [ ] **Native Feel** - iOS/Android design patterns
+- [ ] **Offline First** - Works without internet
+- [ ] **App Install** - PWA installation prompts
 
 ---
 
-## 👥 Partner/Accountability Features
-- [ ] Real-time progress sharing
-- [ ] Shared goals and tasks
-- [ ] Encouragement messages
-- [ ] Competitive challenges
-- [ ] Joint goal celebrations
+## 🚀 **Implementation Timeline**
+
+### **Week 1-2: AI Foundation**
+- Setup Google Gemini API
+- Basic AI chat interface
+- Context integration with user data
+
+### **Week 3-4: Partner System**
+- Partner invitation system
+- Shared goals and tasks
+- Real-time sync setup
+
+### **Week 5-6: Advanced Features**
+- Calendar integration
+- Push notifications
+- Performance optimizations
+
+### **Week 7-8: Polish & Launch**
+- UI/UX refinements
+- Testing and bug fixes
+- Production deployment
 
 ---
 
-## 🔔 Notifications & Reminders
-- [ ] Push notifications for tasks
-- [ ] Daily planning reminders
-- [ ] Weekly review reminders
-- [ ] Goal deadline alerts
-- [ ] Streak maintenance notifications
-
----
-
-## 🎨 UI/UX Enhancements
-- [ ] Dark/Light mode toggle
-- [ ] Custom color themes
-- [ ] Keyboard shortcuts
-- [ ] Mobile app (React Native)
-- [ ] Offline mode support
-- [ ] Voice input for tasks
-
----
-
-## 🔐 Security & Privacy
-- [ ] Two-factor authentication
-- [ ] Data export functionality
-- [ ] Privacy controls for shared data
-- [ ] Encrypted sensitive information
-
----
-
-## 🤖 AI & Automation
-- [ ] AI-powered task prioritization
-- [ ] Smart scheduling suggestions
-- [ ] Pattern recognition for productivity
-- [ ] Automated task categorization
-- [ ] Predictive analytics for goal completion
-
----
-
-## 📱 Integrations
-- [ ] Google Calendar sync
-- [ ] Notion integration
-- [ ] Todoist import
-- [ ] Apple Health integration
-- [ ] Banking API for expense tracking
-- [ ] Email task creation
-
----
-
-## 🎓 Learning & Growth
-- [ ] Resource library per life area
-- [ ] Learning path tracking
-- [ ] Skill development goals
-- [ ] Course/Book tracking
-- [ ] Knowledge base
-
----
-
-## 🏆 Gamification
-- [ ] Achievement badges
-- [ ] Level system
-- [ ] Leaderboards (with partner)
-- [ ] Reward system
-- [ ] Streak bonuses
-
----
-
-## 📝 Notes
-- Keep the design minimal and premium
-- Focus on addictive, motivating UX
-- Ensure fast performance
-- Mobile-first approach
-- Regular data backups
-
----
-
-## 🐛 Known Issues
-- [ ] Fix any remaining UI glitches
-- [ ] Optimize API calls
-- [ ] Improve loading states
-- [ ] Test on different screen sizes
-
----
-
-**Last Updated:** December 15, 2025  
-**Version:** 2.0.0 - UI/UX Optimization & Performance
+**Last Updated:** December 23, 2025  
+**Version:** 3.0.0 - AI & Advanced Features Roadmap

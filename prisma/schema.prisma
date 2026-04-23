@@ -1,0 +1,195 @@
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model JournalBook {
+  id          String         @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  ownerName   String
+  bookType    String         @default("journal")
+  color       String         @default("#7a9eb8")
+  purpose     String?
+  description String?
+  icon        String?
+  isPrivate   Boolean        @default(false)
+  tags        String[]
+  coverImage  String?
+  startedAt   DateTime       @default(now())
+  chapters    String[]
+  createdAt   DateTime       @default(now())
+  entries     JournalEntry[]
+}
+
+model JournalEntry {
+  id        String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String
+  title     String
+  content   String
+  mood      String?
+  chapter   String?
+  tags      String[]
+  bookId    String      @db.ObjectId
+  book      JournalBook @relation(fields: [bookId], references: [id])
+  date      DateTime    @default(now())
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model Task {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String
+  title            String
+  description      String?
+  lifeArea         String    @default("career")
+  goalId           String?
+  impact           Int       @default(5)
+  urgency          Int       @default(5)
+  effort           Int       @default(5)
+  priorityScore    Float     @default(5.0)
+  dueDate          DateTime?
+  scheduledFor     DateTime?
+  reminderAt       DateTime?
+  status           String    @default("todo")
+  completedAt      DateTime?
+  isRecurring      Boolean   @default(false)
+  recurringPattern String?
+  tags             String[]
+  sharedWithPartner Boolean  @default(false)
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([userId, lifeArea])
+  @@index([userId, dueDate])
+  @@index([priorityScore])
+}
+
+model Habit {
+  id            String         @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String
+  title         String
+  description   String?
+  lifeArea      String         @default("health")
+  frequency     String         @default("daily") // 'daily', 'weekly', 'monthly'
+  targetDays    Int            @default(7)
+  streak        Int            @default(0)
+  longestStreak Int            @default(0)
+  color         String         @default("#3b82f6")
+  icon          String         @default("activity")
+  reminderTime  String?
+
+  // Quantifiable habit fields
+  habitType     String         @default("boolean") // 'boolean' | 'quantifiable'
+  targetValue   Int?           // e.g., 10 (glasses of water)
+  unit          String?        // e.g., 'glass', 'step', 'page', 'minute', 'km', 'rep'
+  unitIcon      String?        // e.g., 'glass', 'bottle', 'footprints'
+  
+  deletedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  checkins      HabitCheckin[]
+
+  @@index([userId, lifeArea])
+  @@index([userId, frequency])
+}
+
+model HabitCheckin {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  habitId   String   @db.ObjectId
+  date      DateTime
+  note      String?
+  value     Int      @default(1) // For quantifiable habits: how many units in this check-in
+  
+  createdAt DateTime @default(now())
+
+  habit     Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@index([habitId])
+  @@index([habitId, date])
+}
+
+model Goal {
+  id                String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId            String
+  title             String
+  description       String?
+  lifeArea          String      @default("career")
+  category          String      @default("short-term") // 'short-term', 'long-term', 'habit-based'
+  targetDate        DateTime?
+  status            String      @default("active") // 'active', 'completed', 'paused', 'archived'
+  impact            Int         @default(5)
+  progress          Int         @default(0) // 0-100
+  sharedWithPartner Boolean     @default(false)
+  partnerId         String?     @db.ObjectId
+  aiQuote           String?
+  
+  deletedAt         DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  milestones        Milestone[] // Relation to milestones
+
+  @@index([userId, status])
+  @@index([userId, lifeArea])
+}
+
+model Milestone {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  goalId      String    @db.ObjectId
+  title       String
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  
+  createdAt   DateTime  @default(now())
+
+  goal        Goal      @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([goalId])
+}
+
+model AiCache {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  cacheKey  String   @unique
+  summary   String
+  link      String?
+  type      String   @default("holiday")
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([cacheKey, expiresAt])
+}
+
+model Project {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String
+  title         String
+  description   String
+  type          String    @default("personal")
+  status        String    @default("planning")
+  techStack     String[]
+  startDate     DateTime?
+  targetDate    DateTime?
+  completedDate DateTime?
+  progress      Int       @default(0)
+  hoursSpent    Float     @default(0)
+  earnings      Float?
+  clientName    String?
+  repositoryUrl String?
+  demoUrl       String?
+  notes         String[]
+  tasks         Json
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([userId, type])
+  @@index([userId, targetDate])
+}

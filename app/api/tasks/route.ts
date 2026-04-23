@@ -1,0 +1,121 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+
+function computePriorityScore(impact: number, urgency: number, effort: number): number {
+  return Math.round((impact * 0.4 + urgency * 0.4 + (10 - effort) * 0.2) * 10) / 10;
+}
+
+// GET /api/tasks — paginated, filtered, sorted
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const status = searchParams.get('status');
+    const lifeArea = searchParams.get('lifeArea');
+    const search = searchParams.get('search');
+    const sortBy = searchParams.get('sortBy') || 'priority';
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50')));
+    const skip = (page - 1) * limit;
+
+    // Build where clause — always exclude soft-deleted
+    // MongoDB needs OR for null: field is null OR field is not set
+    const notDeleted = { OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] };
+    const where: Record<string, unknown> = { ...notDeleted };
+
+    if (status && status !== 'all') {
+      where.status = status;
+    }
+    if (lifeArea && lifeArea !== 'all') {
+      where.lifeArea = lifeArea;
+    }
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    // Build orderBy
+    let orderBy: Record<string, string> = {};
+    switch (sortBy) {
+      case 'priority':
+        orderBy = { priorityScore: 'desc' };
+        break;
+      case 'dueDate':
+        orderBy = { dueDate: 'asc' };
+        break;
+      case 'created':
+        orderBy = { createdAt: 'desc' };
+        break;
+      default:
+        orderBy = { priorityScore: 'desc' };
+    }
+
+    const [tasks, total] = await Promise.all([
+      prisma.task.findMany({
+        where,
+        orderBy,
+        skip,
+        take: limit,
+      }),
+      prisma.task.count({ where }),
+    ]);
+
+    return NextResponse.json({
+      tasks,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    console.error('Failed to fetch tasks:', error);
+    return NextResponse.json({ error: 'Failed to fetch tasks' }, { status: 500 });
+  }
+}
+
+// POST /api/tasks — create single task
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const {
+      title, description, lifeArea, goalId,
+      impact = 5, urgency = 5, effort = 5,
+      dueDate, scheduledFor, reminderAt,
+      status = 'todo', isRecurring = false, recurringPattern,
+      tags = [], sharedWithPartner = false,
+    } = body;
+
+    if (!title || !title.trim()) {
+      return NextResponse.json({ error: 'Title is required' }, { status: 400 });
+    }
+
+    const priorityScore = computePriorityScore(impact, urgency, effort);
+
+    const task = await prisma.task.create({
+      data: {
+        userId: 'user-1', // Single user for now
+        title: title.trim(),
+        description: description?.trim() || null,
+        lifeArea: lifeArea || 'career',
+        goalId: goalId || null,
+        impact,
+        urgency,
+        effort,
+        priorityScore,
+        dueDate: dueDate ? new Date(dueDate) : null,
+        scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
+        reminderAt: reminderAt ? new Date(reminderAt) : null,
+        status,
+        isRecurring,
+        recurringPattern: recurringPattern || null,
+        tags,
+        sharedWithPartner,
+      },
+    });
+
+    return NextResponse.json(task, { status: 201 });
+  } catch (error) {
+    console.error('Failed to create task:', error);
+    return NextResponse.json({ error: 'Failed to create task' }, { status: 500 });
+  }
+}

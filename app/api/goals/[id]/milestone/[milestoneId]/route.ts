@@ -36,7 +36,7 @@ export async function PATCH(
       where: { goalId }
     });
 
-    const completedCount = allMilestones.filter(m => m.completed).length;
+    const completedCount = allMilestones.filter((m: { completed: boolean }) => m.completed).length;
     const totalCount = allMilestones.length;
     const progress = totalCount === 0 ? 0 : Math.round((completedCount / totalCount) * 100);
 

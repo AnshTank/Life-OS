@@ -3,10 +3,10 @@ import { prisma } from '@/lib/prisma';
 
 export async function PATCH(
   req: NextRequest, 
-  { params }: { params: { id: string, milestoneId: string } }
+  { params }: { params: Promise<{ id: string, milestoneId: string }> }
 ) {
   try {
-    const { id: goalId, milestoneId } = params;
+    const { id: goalId, milestoneId } = await params;
     
     // Toggle the completed status or apply specific status if provided
     const data = await req.json().catch(() => ({}));

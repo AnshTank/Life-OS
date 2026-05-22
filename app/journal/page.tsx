@@ -1,6 +1,6 @@
 "use client";
 
-import { JournalPage } from '@/pages/JournalPage';
+import { JournalPage } from '@/views/JournalPage';
 
 export default function Journal() {
   return <JournalPage />;

@@ -49,6 +49,12 @@
 @layer base {
   * {
     @apply border-border;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  *::-webkit-scrollbar {
+    display: none;
   }
   
   html {
@@ -502,5 +508,22 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  /* Pencil lead scrollbar */
+  .custom-pencil-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-pencil-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-pencil-scrollbar::-webkit-scrollbar-thumb {
+    background: #d9b896;
+    border-radius: 10px;
+    border: 2px solid #fdfbf7;
+  }
+  .custom-pencil-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #a88a5a;
   }
 }

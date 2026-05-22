@@ -1,7 +1,6 @@
 import "./globals.css";
 import { ClientLayout } from "@/components/ClientLayout";
 import type { Metadata } from "next";
-import FloatingNav  from "../src/components/FloatingNav";
 
 
 export const metadata: Metadata = {
@@ -23,22 +22,6 @@ export default function RootLayout({
       </head>
 
       <body className="antialiased">
-        <FloatingNav
-          position="top-right"
-          siteName="Life OS"
-          logoSrc="/logo.png"
-          items={[
-            { label: "Dashboard", href: "/dashboard" },
-            { label: "Calendar",  href: "/calendar" },
-            { label: "Journal",   href: "/journal" },
-            { label: "Tasks",     href: "/tasks" },
-            { label: "Goals",     href: "/goals" },
-            { label: "Habits",    href: "/habits" },
-            { label: "Money",     href: "/money" },
-            { label: "Partner",     href: "/partner" },
-            { label: "Projects",  href: "/projects" },
-          ]}
-        />
         <ClientLayout>{children}</ClientLayout>
       </body>
     </html>

@@ -1,40 +1,65 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# ----------------------
+# Dependencies
+# ----------------------
+node_modules/
+.pnpm-store/
 
-# dependencies
-/node_modules
-/Test
+# ----------------------
+# Next.js
+# ----------------------
+.next/
+out/
+build/
 
-# next.js
-/.next/
-/out/
-/uploads
+# ----------------------
+# Environment variables (VERY IMPORTANT)
+# ----------------------
+.env
+.env.*
+!.env.example
 
-# production
-/build
-
-# debug
+# ----------------------
+# Logs
+# ----------------------
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
+pnpm-debug.log*
 
-.pnpm-store
+# ----------------------
+# OS / System files
+# ----------------------
+.DS_Store
+Thumbs.db
 
-# env files
-.env*
-
-# vercel
+# ----------------------
+# Vercel / Deployment
+# ----------------------
 .vercel
 
-# typescript
+# ----------------------
+# TypeScript
+# ----------------------
 *.tsbuildinfo
 next-env.d.ts
 
-# md files
-*.md
-*.py
-*.txt
+# ----------------------
+# Uploads / Static files
+# ----------------------
+public/uploads/
+uploads/
 
-public/uploads
-public/uploads*
-public/uploads/*
+# ----------------------
+# Sensitive / Config files
+# ----------------------
+mcp.json
+*.pem
+*.key
+*.crt
+
+# ----------------------
+# Misc
+# ----------------------
+*.log
+*.tmp
+*.swp

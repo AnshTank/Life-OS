@@ -1,0 +1,98 @@
+# Implementation Plan
+
+- [x] 1. Write bug condition exploration test
+  - **Property 1: Bug Condition** - dev:turbo Script Missing
+  - **CRITICAL**: This test MUST FAIL on unfixed code - failure confirms the bug exists
+  - **DO NOT attempt to fix the test or the code when it fails**
+  - **NOTE**: This test encodes the expected behavior - it will validate the fix when it passes after implementation
+  - **GOAL**: Surface counterexamples that demonstrate the bug exists
+  - **Scoped PBT Approach**: For this deterministic bug, scope the property to the concrete failing case: attempting to run `pnpm run dev:turbo` when the script does not exist
+  - Test that `pnpm run dev:turbo` fails with "Missing script" error on unfixed code
+  - Test that turbo.json file does not exist in project root on unfixed code
+  - Test that Turbo is installed in node_modules (should pass - Turbo is already a dependency)
+  - The test assertions should match the Expected Behavior Properties from design:
+    - After fix: `pnpm run dev:turbo` should execute successfully
+    - After fix: turbo.json should exist and contain valid pipeline configuration
+    - After fix: Turbo should be invoked (check for Turbo-specific output messages)
+  - Run test on UNFIXED code
+  - **EXPECTED OUTCOME**: Test FAILS (this is correct - it proves the bug exists)
+  - Document counterexamples found:
+    - Command `pnpm run dev:turbo` returns error indicating script does not exist
+    - File turbo.json is missing from project root
+  - Mark task complete when test is written, run, and failure is documented
+  - _Requirements: 1.1, 1.2, 1.3_
+
+- [x] 2. Write preservation property tests (BEFORE implementing fix)
+  - **Property 2: Preservation** - Existing Script Behavior
+  - **IMPORTANT**: Follow observation-first methodology
+  - Observe behavior on UNFIXED code for existing scripts:
+    - Observe: `pnpm run dev` executes `node scripts/dev-auto.js` with automatic port detection
+    - Observe: `pnpm run build` executes Next.js build process
+    - Observe: `pnpm run start` starts production server
+    - Observe: `pnpm run lint` runs ESLint
+  - Write property-based tests capturing observed behavior patterns from Preservation Requirements:
+    - For all existing scripts (dev, build, start, lint), behavior should remain identical after fix
+    - The `dev` script should continue to use dev-auto.js for automatic port detection
+    - All other scripts should execute exactly as before
+  - Property-based testing generates many test cases for stronger guarantees
+  - Run tests on UNFIXED code
+  - **EXPECTED OUTCOME**: Tests PASS (this confirms baseline behavior to preserve)
+  - Mark task complete when tests are written, run, and passing on unfixed code
+  - _Requirements: 3.1, 3.2, 3.3_
+
+- [ ] 3. Fix for missing dev:turbo script and Turbo configuration
+
+  - [x] 3.1 Add dev:turbo script to package.json
+    - Open package.json
+    - Add `"dev:turbo": "turbo run dev"` to the scripts section after the existing "dev" script
+    - Ensure proper JSON formatting (comma placement)
+    - _Bug_Condition: isBugCondition(input) where input.command == "pnpm run dev:turbo" AND NOT scriptExists("dev:turbo", "package.json")_
+    - _Expected_Behavior: Script executes successfully and invokes Turbo with the dev task_
+    - _Preservation: Existing dev script must continue to execute node scripts/dev-auto.js_
+    - _Requirements: 2.1, 2.3_
+
+  - [x] 3.2 Create turbo.json configuration file
+    - Create turbo.json in project root
+    - Add JSON schema reference: `"$schema": "https://turbo.build/schema.json"`
+    - Define pipeline with dev task:
+      - `"dev": { "cache": false, "persistent": true }`
+    - Define pipeline with build task (for future use):
+      - `"build": { "outputs": [".next/**", "!.next/cache/**"], "dependsOn": ["^build"] }`
+    - Define pipeline with lint task (for future use):
+      - `"lint": { "cache": true }`
+    - Ensure valid JSON formatting
+    - _Bug_Condition: isBugCondition(input) where NOT fileExists("turbo.json")_
+    - _Expected_Behavior: turbo.json exists with valid pipeline configuration for dev, build, and lint tasks_
+    - _Preservation: No impact on existing scripts - turbo.json only affects dev:turbo execution_
+    - _Requirements: 2.2, 2.3_
+
+  - [-] 3.3 Verify bug condition exploration test now passes
+    - **Property 1: Expected Behavior** - dev:turbo Script Execution
+    - **IMPORTANT**: Re-run the SAME test from task 1 - do NOT write a new test
+    - The test from task 1 encodes the expected behavior
+    - When this test passes, it confirms the expected behavior is satisfied
+    - Run bug condition exploration test from step 1
+    - Verify `pnpm run dev:turbo` executes without "Missing script" error
+    - Verify turbo.json file exists in project root
+    - Verify Turbo is invoked (check output for Turbo-specific messages)
+    - **EXPECTED OUTCOME**: Test PASSES (confirms bug is fixed)
+    - _Requirements: 2.1, 2.2, 2.3_
+
+  - [ ] 3.4 Verify preservation tests still pass
+    - **Property 2: Preservation** - Existing Script Behavior
+    - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
+    - Run preservation property tests from step 2
+    - Verify `pnpm run dev` still executes `node scripts/dev-auto.js`
+    - Verify `pnpm run build` still works as before
+    - Verify `pnpm run start` still works as before
+    - Verify `pnpm run lint` still works as before
+    - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions)
+    - Confirm all tests still pass after fix (no regressions)
+    - _Requirements: 3.1, 3.2, 3.3_
+
+- [ ] 4. Checkpoint - Ensure all tests pass
+  - Run all tests (bug condition + preservation)
+  - Verify `pnpm run dev:turbo` starts Turbo-powered development server
+  - Verify `pnpm run dev` still uses automatic port detection via dev-auto.js
+  - Verify all other existing scripts (build, start, lint) work as before
+  - Ask the user if questions arise

@@ -81,7 +81,7 @@ export async function POST(
     } else {
       // For boolean habits: toggle on/off
       const existingCheckin = habit.checkins.find(
-        c => startOfDay(new Date(c.date)).getTime() === checkinDate.getTime()
+        (c: { date: Date; id: string }) => startOfDay(new Date(c.date)).getTime() === checkinDate.getTime()
       );
 
       if (existingCheckin) {
@@ -124,7 +124,7 @@ export async function POST(
         }
       });
     } else {
-      completedDates = allCheckins.map(c => c.date);
+      completedDates = allCheckins.map((c: { date: Date }) => c.date);
     }
 
     const { current, longest } = calculateStreak(completedDates);
@@ -197,7 +197,7 @@ export async function DELETE(
         }
       });
     } else {
-      completedDates = allCheckins.map(c => c.date);
+      completedDates = allCheckins.map((c: { date: Date }) => c.date);
     }
 
     const { current, longest } = calculateStreak(completedDates);

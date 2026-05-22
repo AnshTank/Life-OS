@@ -100,7 +100,7 @@ export function PartnerDetailModal({ partnerId, onClose }: PartnerDetailModalPro
 
   return (
     <Dialog open={!!partnerId} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[800px] h-[80vh] flex flex-col p-0 overflow-hidden journal-card">
+      <DialogContent className="sm:max-w-[800px] h-[80vh] flex flex-col p-0 overflow-hidden journal-modal">
         {loading || !partner ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="w-8 h-8 animate-spin text-purple-500" />

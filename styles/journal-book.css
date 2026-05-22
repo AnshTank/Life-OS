@@ -191,18 +191,23 @@
 /* ─── Pages ─── */
 .book-left-page, .book-right-page {
   position: absolute;
-  top: 12%;
-  width: 36%;
-  height: 76%;
+  top: 10%;
+  width: 33.5%;
+  height: 80%;
   z-index: 10;
   display: flex;
   flex-direction: column;
-  padding: 4vh 3vh;
   pointer-events: auto;
 }
 
-.book-left-page { left: 13%; }
-.book-right-page { right: 13%; }
+.book-left-page { 
+  left: 14.5%; 
+  padding: 5vh 4.5vh 5vh 7.5vh;
+}
+.book-right-page { 
+  right: 14.5%; 
+  padding: 5vh 7.5vh 5vh 4.5vh;
+}
 
 /* ─── Page Content ─── */
 .book-left-page-drawing {
@@ -230,9 +235,10 @@
 }
 
 .lined-paper {
-  background-image: linear-gradient(#e0dcd0 1px, transparent 1px);
+  background-image: linear-gradient(to bottom, #d9d4c7 1px, transparent 1px);
   background-size: 100% 3.2vh;
-  background-position: 0 3vh;
+  background-position: 0 2.8vh;
+  background-attachment: local;
 }
 
 .entry-title-handwritten {

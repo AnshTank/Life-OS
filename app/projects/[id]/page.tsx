@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Edit2, Trash2, MoreHorizontal, Play, Square, 
@@ -155,8 +156,10 @@ export default function ProjectDetailPage() {
         
         {/* Navigation & Actions */}
         <div className="flex items-center justify-between">
-          <Button variant="ghost" className="font-kalam text-slate-500 hover:text-[#2d2d2d]" onClick={() => router.back()}>
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Dashboard
+          <Button variant="ghost" className="font-kalam text-slate-500 hover:text-[#2d2d2d]" asChild>
+            <Link href="/projects">
+              <ArrowLeft className="w-4 h-4 mr-2" /> Back to Projects
+            </Link>
           </Button>
           <div className="flex items-center gap-3">
              <Button variant="outline" className={`journal-btn gap-2 h-10 ${isTimerRunning ? 'bg-red-50 text-red-600 border-red-200 animate-pulse' : ''}`} onClick={toggleTimer}>

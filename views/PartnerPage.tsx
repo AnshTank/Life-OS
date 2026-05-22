@@ -23,6 +23,9 @@ import {
 import { 
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
+import { 
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
+} from '@/components/ui/select';
 import { PartnerDetailModal } from '@/components/partners/PartnerDetailModal';
 import type { PartnerStatus, PartnerPriority } from '@/types';
 
@@ -120,7 +123,7 @@ export function PartnerPage() {
                 Add Partner
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px] journal-card">
+            <DialogContent className="sm:max-w-[500px] journal-modal">
               <DialogHeader>
                 <DialogTitle className="font-caveat text-3xl">New Partner Profile</DialogTitle>
                 <DialogDescription className="font-kalam">
@@ -189,29 +192,37 @@ export function PartnerPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <label className="text-sm font-medium font-kalam">Priority</label>
-                    <select 
-                      className="journal-input bg-white h-10 px-3 rounded-md border border-slate-200"
-                      value={newPartner.priority}
-                      onChange={(e) => setNewPartner({...newPartner, priority: e.target.value as PartnerPriority})}
+                    <Select 
+                      value={newPartner.priority} 
+                      onValueChange={(v) => setNewPartner({...newPartner, priority: v as PartnerPriority})}
                     >
-                      <option value="high">High Priority</option>
-                      <option value="medium">Medium Priority</option>
-                      <option value="low">Low Priority</option>
-                    </select>
+                      <SelectTrigger className="journal-input bg-white text-left font-kalam">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d] font-kalam">
+                        <SelectItem value="high">High Priority</SelectItem>
+                        <SelectItem value="medium">Medium Priority</SelectItem>
+                        <SelectItem value="low">Low Priority</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="grid gap-2">
                     <label className="text-sm font-medium font-kalam">Partner Type</label>
-                    <select 
-                      className="journal-input bg-white h-10 px-3 rounded-md border border-slate-200"
-                      value={newPartner.partnerType}
-                      onChange={(e) => setNewPartner({...newPartner, partnerType: e.target.value})}
+                    <Select 
+                      value={newPartner.partnerType} 
+                      onValueChange={(v) => setNewPartner({...newPartner, partnerType: v})}
                     >
-                      <option value="strategic">Strategic Partner</option>
-                      <option value="vendor">Vendor / Supplier</option>
-                      <option value="client">Client</option>
-                      <option value="affiliate">Affiliate</option>
-                      <option value="personal">Personal Sync</option>
-                    </select>
+                      <SelectTrigger className="journal-input bg-white text-left font-kalam">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d] font-kalam">
+                        <SelectItem value="strategic">Strategic Partner</SelectItem>
+                        <SelectItem value="vendor">Vendor / Supplier</SelectItem>
+                        <SelectItem value="client">Client</SelectItem>
+                        <SelectItem value="affiliate">Affiliate</SelectItem>
+                        <SelectItem value="personal">Personal Sync</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 

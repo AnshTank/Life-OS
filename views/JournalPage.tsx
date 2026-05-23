@@ -18,6 +18,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useApp } from '@/context/AppContext';
+import { toast } from 'sonner';
 import { JournalBookView } from '@/components/journal/JournalBookView';
 import { DailySpread } from '@/components/journal/DailySpread';
 import { Bookshelf } from '@/components/journal/Bookshelf';
@@ -86,6 +87,26 @@ export function JournalPage() {
   const [newBookIsPrivate, setNewBookIsPrivate] = useState(false);
   const [newBookTags, setNewBookTags] = useState('');
   const [formStep, setFormStep] = useState(1); // Multi-step form
+  const [isSeeding, setIsSeeding] = useState(false);
+
+  const handleSeedDefaults = async () => {
+    setIsSeeding(true);
+    try {
+      const res = await fetch('/api/seed');
+      const data = await res.json();
+      if (res.ok) {
+        toast.success("Welcome! Seeded beautiful default journals and reflections!");
+        window.location.reload();
+      } else {
+        toast.error(`Seeding failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to seed database.");
+    } finally {
+      setIsSeeding(false);
+    }
+  };
 
   const bookTypePresets = [
     { type: 'journal' as const, icon: '📔', label: 'Journal', desc: 'Personal reflections & thoughts', defaultIcon: '📔' },
@@ -706,13 +727,37 @@ export function JournalPage() {
           </Button>
         </div>
         
-        <Bookshelf 
-          books={journalBooks}
-          onOpenBook={handleOpenBook}
-          onDeleteBook={deleteJournalBook}
-          onNewBook={() => setCreateBookOpen(true)}
-          entryCountGetter={(id) => journalEntries.filter(e => e.bookId === id).length}
-        />
+        {journalBooks.length === 0 ? (
+          <div className="flex flex-col items-center justify-center p-8 rounded-2xl border-2 border-dashed border-[#d9b896] bg-[#fdfaf2]/50 text-center space-y-4 my-4">
+            <div className="w-16 h-16 rounded-full bg-[#f5f0e6] border-2 border-[#d9b896] flex items-center justify-center">
+              <BookOpen className="w-8 h-8 text-[#a88a5a]" />
+            </div>
+            <div>
+              <h3 className="font-caveat text-3xl text-[#2d2d2d] font-bold">Your Archive is Empty</h3>
+              <p className="font-kalam text-sm text-[#5a5a5a] max-w-md mx-auto mt-1 leading-relaxed">
+                You haven't commissioned any journal books yet. Start your writing journey by seeding demo entries or creating a fresh blank book.
+              </p>
+            </div>
+            <div className="flex items-center gap-4 flex-wrap justify-center pt-2">
+              <Button onClick={handleSeedDefaults} disabled={isSeeding} className="journal-btn-primary px-6 h-11 text-base flex items-center gap-2">
+                <Sparkles className="w-4 h-4" />
+                {isSeeding ? "Whispering to database..." : "Seed Default Books & Entries"}
+              </Button>
+              <Button onClick={() => setCreateBookOpen(true)} className="journal-btn px-6 h-11 text-base flex items-center gap-2">
+                <Plus className="w-4 h-4" />
+                Commission Blank Book
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Bookshelf 
+            books={journalBooks}
+            onOpenBook={handleOpenBook}
+            onDeleteBook={deleteJournalBook}
+            onNewBook={() => setCreateBookOpen(true)}
+            entryCountGetter={(id) => journalEntries.filter(e => e.bookId === id).length}
+          />
+        )}
       </motion.div>
 
       {/* ═══ MODALS ═══ */}

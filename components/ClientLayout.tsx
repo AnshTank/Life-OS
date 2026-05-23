@@ -31,33 +31,47 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
     router.push('/dashboard');
   };
 
+  let content;
   if (!isAuthenticated) {
-    return <LandingPage onLogin={handleLogin} />;
+    if (pathname === '/login' || pathname === '/register') {
+      content = (
+        <main className="py-8 px-4 sm:px-6 lg:px-8">
+          {children}
+        </main>
+      );
+    } else {
+      content = <LandingPage onLogin={handleLogin} />;
+    }
+  } else {
+    content = (
+      <>
+        <FloatingNav
+          siteName="Life OS"
+          logoSrc="/logo.png"
+          items={[
+            { label: "Dashboard", href: "/dashboard" },
+            { label: "Calendar",  href: "/calendar" },
+            { label: "Journal",   href: "/journal" },
+            { label: "Tasks",     href: "/tasks" },
+            { label: "Goals",     href: "/goals" },
+            { label: "Habits",    href: "/habits" },
+            { label: "Money",     href: "/money" },
+            { label: "Partner",   href: "/partner" },
+            { label: "Projects",  href: "/projects" },
+          ]}
+        />
+        <JarvisCompanion currentPage={pathname?.replace('/', '') || 'dashboard'} />
+        
+        <main className="pt-12 pb-8 px-4 sm:px-6 lg:px-8">
+          {children}
+        </main>
+      </>
+    );
   }
 
   return (
     <div className="min-h-screen bg-[#fdfbf7]">
-      <FloatingNav
-        siteName="Life OS"
-        logoSrc="/logo.png"
-        items={[
-          { label: "Dashboard", href: "/dashboard" },
-          { label: "Calendar",  href: "/calendar" },
-          { label: "Journal",   href: "/journal" },
-          { label: "Tasks",     href: "/tasks" },
-          { label: "Goals",     href: "/goals" },
-          { label: "Habits",    href: "/habits" },
-          { label: "Money",     href: "/money" },
-          { label: "Partner",   href: "/partner" },
-          { label: "Projects",  href: "/projects" },
-        ]}
-      />
-      <JarvisCompanion currentPage={pathname?.replace('/', '') || 'dashboard'} />
-      
-      <main className="pt-12 pb-8 px-4 sm:px-6 lg:px-8">
-        {children}
-      </main>
-
+      {content}
       <Toaster 
         position="top-right" 
         toastOptions={{

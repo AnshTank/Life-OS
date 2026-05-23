@@ -136,7 +136,7 @@ export function JournalBookView({ book: initialBook, onUpdate, onClose }: Journa
 
                 {/* LEFT PAGE */}
                 <div className="book-left-page">
-                  <AnimatePresence mode="wait">
+                  <AnimatePresence>
                     {currentPage === 0 ? (
                       <motion.div 
                         key="left-title"
@@ -159,7 +159,7 @@ export function JournalBookView({ book: initialBook, onUpdate, onClose }: Journa
                         animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
                         exit={{ opacity: 0, x: 30, filter: "blur(2px)" }}
                         transition={{ duration: 0.4, ease: "easeOut" }}
-                        className="entry-content-page lined-paper"
+                        className="entry-content-page lined-paper-left"
                       >
                         <h2 className="entry-title-handwritten">{currentEntry?.title}</h2>
                         <div className="entry-date-handwritten">
@@ -177,7 +177,7 @@ export function JournalBookView({ book: initialBook, onUpdate, onClose }: Journa
 
                 {/* RIGHT PAGE */}
                 <div className="book-right-page">
-                  <AnimatePresence mode="wait">
+                  <AnimatePresence>
                     {currentPage === 0 ? (
                       <motion.div 
                         key="right-title"

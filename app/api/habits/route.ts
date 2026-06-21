@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 
 // GET /api/habits — Fetch all active habits for the user
 export async function GET(req: NextRequest) {
   try {
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const { searchParams } = new URL(req.url);
     const lifeArea = searchParams.get('lifeArea');
     const search = searchParams.get('search');
-    
-    // In a real app, you'd get the userId from the session
-    const userId = "user-1"; 
 
     // Build the non-deleted filter compatible with MongoDB
     const notDeletedFilter = {
@@ -53,6 +57,12 @@ export async function GET(req: NextRequest) {
 // POST /api/habits — Create a new habit
 export async function POST(req: NextRequest) {
   try {
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const body = await req.json();
     const { 
       title, description, lifeArea, frequency, targetDays, color, icon, reminderTime,
@@ -62,9 +72,6 @@ export async function POST(req: NextRequest) {
     if (!title) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
-
-    // In a real app, you'd get the userId from the session
-    const userId = "user-1";
 
     const habit = await prisma.habit.create({
       data: {

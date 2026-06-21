@@ -249,6 +249,14 @@ model Project {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Engineering Suite relations
+  engineeringNotes Note[] @relation("ProjectNotes")
+  meetings         Meeting[] @relation("ProjectMeetings")
+  mistakes         Mistake[] @relation("ProjectMistakes")
+  requirements     RequirementDoc[] @relation("ProjectRequirements")
+  testCases        TestCase[] @relation("ProjectTestCases")
+  visualDiffs      VisualDiff[] @relation("ProjectVisualDiffs")
+
   @@index([userId, status])
   @@index([userId, type])
   @@index([userId, slug])
@@ -387,4 +395,105 @@ model PurchaseLog {
   createdAt          DateTime @default(now())
 
   @@index([userId, category])
+}
+
+model Note {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String
+  projectId String?  @db.ObjectId
+  project   Project? @relation("ProjectNotes", fields: [projectId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  folder    String   @default("All") // All, Meetings, Work, Personal, Trash
+  tags      String[]
+  backlinks String[] // Titles or IDs of linked notes
+  isFav     Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, projectId])
+  @@index([folder])
+}
+
+model Meeting {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String
+  projectId   String?  @db.ObjectId
+  project     Project? @relation("ProjectMeetings", fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  transcript  String?
+  summary     String?
+  decisions   String?  // JSON string
+  actionItems String?  // JSON string
+  risks       String?  // JSON string
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, projectId])
+}
+
+model Mistake {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId             String
+  projectId          String?  @db.ObjectId
+  project            Project? @relation("ProjectMistakes", fields: [projectId], references: [id], onDelete: Cascade)
+  title              String
+  description        String
+  rootCause          String
+  severity           String   @default("medium") // low, medium, high, critical
+  category           String   @default("technical") // requirement, testing, deployment, communication, technical
+  preventionStrategy String
+  createdAt          DateTime @default(now())
+
+  @@index([userId, projectId])
+}
+
+model RequirementDoc {
+  id              String     @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String
+  projectId       String?    @db.ObjectId
+  project         Project?   @relation("ProjectRequirements", fields: [projectId], references: [id], onDelete: Cascade)
+  title           String
+  laymanText      String
+  functionalSpecs String?    // JSON string
+  technicalSpecs  String?    // JSON string
+  createdAt       DateTime   @default(now())
+  testCases       TestCase[]
+
+  @@index([userId, projectId])
+}
+
+model TestCase {
+  id             String          @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String
+  projectId      String?         @db.ObjectId
+  project        Project?        @relation("ProjectTestCases", fields: [projectId], references: [id], onDelete: Cascade)
+  requirementId  String?         @db.ObjectId
+  requirement    RequirementDoc? @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?
+  steps          String[]
+  expectedResult String
+  status         String          @default("pending") // pending, pass, fail
+  testType       String          @default("functional") // functional, api, regression, performance, security, edge-case
+  createdAt      DateTime        @default(now())
+
+  @@index([userId, projectId])
+}
+
+model VisualDiff {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String
+  projectId       String?  @db.ObjectId
+  project         Project? @relation("ProjectVisualDiffs", fields: [projectId], references: [id], onDelete: Cascade)
+  title           String
+  beforeImage     String   // Base64 or URL
+  afterImage      String   // Base64 or URL
+  diffImage       String?  // Base64 or URL
+  detectedChanges String?  // JSON string
+  createdAt       DateTime @default(now())
+
+  @@index([userId, projectId])
 }

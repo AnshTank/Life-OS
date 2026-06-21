@@ -8,6 +8,7 @@ import { Sparkles, ArrowRight, Star, Heart, Coffee } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import { signIn } from 'next-auth/react';
 
 function LoginForm() {
   const { login } = useApp();
@@ -114,6 +115,16 @@ function LoginForm() {
         <div className="mt-6 space-y-3">
           <Button
             variant="outline"
+            onClick={() => signIn('google', { callbackUrl })}
+            disabled={isLoading}
+            className="w-full h-11 sketch-btn flex items-center justify-center gap-2 border-[#7a9eb8] text-[#5a7a94] hover:bg-[#e8eef3]"
+          >
+            <img src="https://www.google.com/favicon.ico" alt="Google" className="w-4 h-4" />
+            Sign in with Google Account
+          </Button>
+          
+          <Button
+            variant="outline"
             onClick={handleDemoLogin}
             disabled={isLoading}
             className="w-full h-11 sketch-btn flex items-center justify-center gap-2 border-[#9b8ab8] text-[#7a6b94] hover:bg-[#f3f0f7]"
@@ -123,7 +134,7 @@ function LoginForm() {
           </Button>
           
           <p className="text-center handwritten-sm text-xs text-[#8a8a8a] mt-4">
-            New here? <Link href="/#join" className="underline hover:text-[#2d2d2d]">Create your life OS</Link>
+            New here? <Link href="/register" className="underline hover:text-[#2d2d2d]">Create your life OS</Link>
           </p>
         </div>
       </motion.div>
@@ -134,6 +145,11 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <div className="min-h-screen bg-[#fdfbf7] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+      {/* Back to Home Button */}
+      <Link href="/" className="absolute top-4 left-4 inline-flex items-center gap-2 handwritten-sm hover:underline text-[#5a5a5a] bg-white border border-[#2d2d2d] px-3 py-1.5 rounded shadow-sm hover:-translate-y-0.5 transition-all duration-200 z-50">
+        <span>←</span> Back to Home
+      </Link>
+
       {/* Background elements */}
       <div className="absolute inset-0 pointer-events-none opacity-40">
         <div className="absolute top-[10%] left-[5%] rotate-12"><Star className="w-12 h-12 text-[#d4c574]" /></div>

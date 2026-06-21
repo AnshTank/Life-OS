@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 
 function computePriorityScore(impact: number, urgency: number, effort: number): number {
   return Math.round((impact * 0.4 + urgency * 0.4 + (10 - effort) * 0.2) * 10) / 10;
@@ -12,11 +13,17 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
+    
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
     const body = await req.json();
 
     // Check task exists and is not deleted
     const existing = await prisma.task.findFirst({
-      where: { id, OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] },
+      where: { id, userId, OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] },
     });
 
     if (!existing) {
@@ -82,8 +89,14 @@ export async function DELETE(
   try {
     const { id } = await params;
 
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const existing = await prisma.task.findFirst({
-      where: { id, OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] },
+      where: { id, userId, OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] },
     });
 
     if (!existing) {

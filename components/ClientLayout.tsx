@@ -8,6 +8,7 @@ import { JarvisCompanion } from '@/components/JarvisCompanion';
 import { Toaster } from '@/components/ui/sonner';
 import { LandingPage } from '@/views/LandingPage';
 import { SessionProvider } from 'next-auth/react';
+import { SettingChangeOverlay } from '@/components/SettingChangeOverlay';
 
 function LayoutContent({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useApp();
@@ -72,6 +73,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-[#fdfbf7]">
       {content}
+      <SettingChangeOverlay />
       <Toaster 
         position="top-right" 
         toastOptions={{

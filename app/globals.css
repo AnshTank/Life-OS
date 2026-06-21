@@ -527,3 +527,36 @@
     background: #a88a5a;
   }
 }
+
+/* Futuristic Holographic UI & Neon Glow */
+@keyframes neon-glow {
+  0%, 100% {
+    border-color: rgba(169, 155, 196, 0.6);
+    box-shadow: 0 0 15px rgba(169, 155, 196, 0.3), inset 0 0 10px rgba(169, 155, 196, 0.1);
+  }
+  33% {
+    border-color: rgba(122, 158, 184, 0.6);
+    box-shadow: 0 0 15px rgba(122, 158, 184, 0.3), inset 0 0 10px rgba(122, 158, 184, 0.1);
+  }
+  66% {
+    border-color: rgba(212, 145, 145, 0.6);
+    box-shadow: 0 0 15px rgba(212, 145, 145, 0.3), inset 0 0 10px rgba(212, 145, 145, 0.1);
+  }
+}
+
+.animate-neon-pulse {
+  animation: neon-glow 8s linear infinite;
+  transition: border-color 0.5s ease, box-shadow 0.5s ease;
+}
+
+/* Glassmorphic dialog overlay */
+[data-slot="dialog-overlay"] {
+  background-color: rgba(0, 0, 0, 0.15) !important;
+  backdrop-filter: blur(3px) !important;
+}
+
+/* Smooth font transitions */
+body {
+  transition: font-family 0.35s cubic-bezier(0.4, 0, 0.2, 1), font-size 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+

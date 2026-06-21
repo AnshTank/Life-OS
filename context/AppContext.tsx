@@ -144,9 +144,30 @@ interface AppContextType {
   
   // AI
   aiMessages: { role: 'user' | 'assistant'; content: string; timestamp: Date }[];
-  sendAIMessage: (message: string) => Promise<void>;
+  sendAIMessage: (message: string, clientContext?: { currentPage?: string; latitude?: number; longitude?: number; isCallMode?: boolean }) => Promise<void>;
   clearAIChat: () => void;
   getAIInsights: () => string;
+  aiName: string;
+  aiLanguage: string;
+  aiVoicePreference: string;
+  aiAvatar: string;
+  updateAISettings: (settings: { aiName?: string; aiLanguage?: string; aiVoicePreference?: string; aiAvatar?: string }) => void;
+  settingChangeAnimation: {
+    active: boolean;
+    type: 'font' | 'size' | 'avatar' | 'voice' | 'name' | 'language' | 'general';
+    value: string;
+    label: string;
+  } | null;
+  triggerSettingChangeAnimation: (
+    type: 'font' | 'size' | 'avatar' | 'voice' | 'name' | 'language' | 'general',
+    value: string,
+    label: string,
+    applyCallback: () => void
+  ) => void;
+
+  // Currency Settings
+  currencyPreference: string;
+  updateCurrencyPreference: (currency: string) => void;
 
   // Global Loading
   isLoading: boolean;
@@ -275,9 +296,92 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .catch(err => console.error("Failed to fetch entries:", err));
   }, [activeBookId]);
 
-  const [aiMessages, setAiMessages] = useState<{ role: 'user' | 'assistant'; content: string; timestamp: Date }[]>([
-    { role: 'assistant', content: 'Hello! I\'m JARVIS, your Life OS companion. I can help you with tasks, goals, investments, and more. What would you like to know?', timestamp: new Date() }
-  ]);
+  const [aiName, setAiName] = useState<string>("Potato");
+  const [aiLanguage, setAiLanguage] = useState<string>("Auto-detect");
+  const [aiVoicePreference, setAiVoicePreference] = useState<string>("Mei");
+  const [aiAvatar, setAiAvatar] = useState<string>("classic");
+  const [aiMessages, setAiMessages] = useState<{ role: 'user' | 'assistant'; content: string; timestamp: Date }[]>([]);
+  const [settingChangeAnimation, setSettingChangeAnimation] = useState<any>(null);
+  
+  // Currency preference state
+  const [currencyPreference, setCurrencyPreference] = useState<string>("INR");
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedName = localStorage.getItem("soul-sync-ai-name") || "Potato";
+      const savedLanguage = localStorage.getItem("soul-sync-ai-language") || "Auto-detect";
+      const savedVoice = localStorage.getItem("soul-sync-ai-voice-preference") || "Mei";
+      const savedAvatar = localStorage.getItem("soul-sync-ai-avatar") || "classic";
+      const savedCurrency = localStorage.getItem("soul-sync-currency") || "INR";
+      
+      setAiName(savedName);
+      setAiLanguage(savedLanguage);
+      setAiVoicePreference(savedVoice);
+      setAiAvatar(savedAvatar);
+      setCurrencyPreference(savedCurrency);
+      setAiMessages([
+        { role: 'assistant', content: `Hello! I'm ${savedName}, your Life OS companion. I can help you with tasks, goals, investments, and more. What would you like to know?`, timestamp: new Date() }
+      ]);
+    }
+  }, []);
+
+  const updateAISettings = useCallback((settings: { aiName?: string; aiLanguage?: string; aiVoicePreference?: string; aiAvatar?: string }) => {
+    if (settings.aiName !== undefined) {
+      setAiName(settings.aiName);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("soul-sync-ai-name", settings.aiName);
+      }
+      setAiMessages(prev => prev.map((msg, idx) => {
+        if (idx === 0 && msg.role === 'assistant' && msg.content.includes("your Life OS companion")) {
+          return {
+            ...msg,
+            content: `Hello! I'm ${settings.aiName}, your Life OS companion. I can help you with tasks, goals, investments, and more. What would you like to know?`
+          };
+        }
+        return msg;
+      }));
+    }
+    if (settings.aiLanguage !== undefined) {
+      setAiLanguage(settings.aiLanguage);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("soul-sync-ai-language", settings.aiLanguage);
+      }
+    }
+    if (settings.aiVoicePreference !== undefined) {
+      setAiVoicePreference(settings.aiVoicePreference);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("soul-sync-ai-voice-preference", settings.aiVoicePreference);
+      }
+    }
+    if (settings.aiAvatar !== undefined) {
+      setAiAvatar(settings.aiAvatar);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("soul-sync-ai-avatar", settings.aiAvatar);
+      }
+    }
+  }, []);
+
+  const updateCurrencyPreference = useCallback((currency: string) => {
+    setCurrencyPreference(currency);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("soul-sync-currency", currency);
+    }
+  }, []);
+  const triggerSettingChangeAnimation = useCallback((
+    type: 'font' | 'size' | 'avatar' | 'voice' | 'name' | 'language' | 'general',
+    value: string,
+    label: string,
+    applyCallback: () => void
+  ) => {
+    setSettingChangeAnimation({ active: true, type, value, label });
+    setTimeout(() => {
+      applyCallback();
+    }, 5500);
+    setTimeout(() => {
+      setSettingChangeAnimation(null);
+    }, 7500);
+  }, []);
 
   // Apply font settings to body
   useEffect(() => {
@@ -1041,29 +1145,123 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [tasks, goals, habits, investments, getMonthlySummary]);
 
   // AI Actions
-  const sendAIMessage = useCallback(async (message: string) => {
-    setAiMessages(prev => [...prev, { role: 'user', content: message, timestamp: new Date() }]);
-    
-    setTimeout(() => {
-      const responses = [
-        "Based on your data, I'd recommend focusing on your high-priority tasks first. You have some urgent items!",
-        "Looking at your goals, you're making great progress! Keep the momentum going.",
-        "Your portfolio is looking healthy. Consider diversifying a bit more into ETFs.",
-        "Your habit streaks are impressive! Don't break the chain!",
-        "I noticed you have some upcoming deadlines. Want me to help prioritize?",
-      ];
-      const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-      setAiMessages(prev => [...prev, { role: 'assistant', content: randomResponse, timestamp: new Date() }]);
-    }, 800);
-  }, []);
+  const sendAIMessage = useCallback(async (message: string, clientContext?: { currentPage?: string; latitude?: number; longitude?: number; isCallMode?: boolean }) => {
+    const newUserMessage = { role: 'user' as const, content: message, timestamp: new Date() };
+    setAiMessages(prev => [...prev, newUserMessage]);
+
+    try {
+      const historyPayload = clientContext?.isCallMode 
+        ? [] 
+        : aiMessages.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          }));
+
+      const res = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          history: historyPayload,
+          currentPage: clientContext?.currentPage,
+          latitude: clientContext?.latitude,
+          longitude: clientContext?.longitude,
+          aiName,
+          aiLanguage,
+          isCallMode: clientContext?.isCallMode,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Failed to fetch response');
+      }
+
+      const data = await res.json();
+      const rawReply = data.response || "";
+
+      // Parse settings tags
+      const settingRegex = /\[SETTING:\s*([^|\]]+)\s*\|\s*([^\]]+)\]/g;
+      let match;
+      const settingsToApply: { type: string; value: string }[] = [];
+
+      while ((match = settingRegex.exec(rawReply)) !== null) {
+        settingsToApply.push({
+          type: match[1].trim().toLowerCase(),
+          value: match[2].trim()
+        });
+      }
+
+      const cleanedReply = rawReply.replace(settingRegex, '').trim();
+      setAiMessages(prev => [...prev, { role: 'assistant' as const, content: cleanedReply, timestamp: new Date() }]);
+
+      // Process settings updates
+      if (settingsToApply.length > 0) {
+        const item = settingsToApply[0];
+        const val = item.value;
+
+        if (item.type === 'font-family') {
+          const fontVal = val.toLowerCase();
+          if (['kalam', 'caveat', 'indie', 'patrick', 'architects'].includes(fontVal)) {
+            triggerSettingChangeAnimation('font', fontVal, `Font Style: ${fontVal}`, () => {
+              updateFontSettings({ family: fontVal as any });
+            });
+          }
+        } else if (item.type === 'font-size') {
+          let newSize = fontSettings.size;
+          if (val.startsWith('+') || val.startsWith('-')) {
+            const delta = parseInt(val, 10);
+            if (!isNaN(delta)) {
+              newSize = Math.max(12, Math.min(24, fontSettings.size + delta));
+            }
+          } else {
+            const target = parseInt(val, 10);
+            if (!isNaN(target)) {
+              newSize = Math.max(12, Math.min(24, target));
+            }
+          }
+          triggerSettingChangeAnimation('size', String(newSize), `Font Size: ${newSize}px`, () => {
+            updateFontSettings({ size: newSize });
+          });
+        } else if (item.type === 'voice') {
+          if (['Mei', 'Ansh', 'Mary'].includes(val)) {
+            triggerSettingChangeAnimation('voice', val, `Voice: ${val}`, () => {
+              updateAISettings({ aiVoicePreference: val });
+            });
+          }
+        } else if (item.type === 'avatar') {
+          if (['classic', 'sakura', 'ansh', 'mary'].includes(val)) {
+            triggerSettingChangeAnimation('avatar', val, `Avatar: ${val}`, () => {
+              updateAISettings({ aiAvatar: val });
+            });
+          }
+        } else if (item.type === 'language') {
+          triggerSettingChangeAnimation('language', val, `Language: ${val}`, () => {
+            updateAISettings({ aiLanguage: val });
+          });
+        } else if (item.type === 'name') {
+          triggerSettingChangeAnimation('name', val, `Companion Name: ${val}`, () => {
+            updateAISettings({ aiName: val });
+          });
+        }
+      }
+    } catch (err: any) {
+      console.error("AI Chat companion error:", err);
+      setAiMessages(prev => [...prev, { 
+        role: 'assistant' as const, 
+        content: `Sorry, I'm having trouble connecting right now (${err.message || 'connection failed'}). Please check your connection or try again later.`, 
+        timestamp: new Date() 
+      }]);
+    }
+  }, [aiMessages, aiName, aiLanguage, fontSettings, updateFontSettings, updateAISettings, triggerSettingChangeAnimation]);
 
   const clearAIChat = useCallback(() => {
     setAiMessages([{ 
       role: 'assistant', 
-      content: 'Hello! I\'m JARVIS, your Life OS companion. How can I help you today?', 
+      content: `Hello! I'm ${aiName}, your Life OS companion. How can I help you today?`, 
       timestamp: new Date() 
     }]);
-  }, []);
+  }, [aiName]);
 
   const getAIInsights = useCallback(() => {
     const pendingTasks = tasks.filter(t => t.status !== 'completed').length;
@@ -1086,6 +1284,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     notifications, markNotificationRead, clearNotifications, addNotification,
     stats, refreshStats,
     aiMessages, sendAIMessage, clearAIChat, getAIInsights,
+    aiName, aiLanguage, aiVoicePreference, aiAvatar, updateAISettings,
+    settingChangeAnimation, triggerSettingChangeAnimation,
+    currencyPreference, updateCurrencyPreference,
     isLoading,
   }), [
     user, isAuthenticated, login, logout, updateUserProfile,
@@ -1101,6 +1302,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     notifications, markNotificationRead, clearNotifications, addNotification,
     stats, refreshStats,
     aiMessages, sendAIMessage, clearAIChat, getAIInsights,
+    aiName, aiLanguage, aiVoicePreference, aiAvatar, updateAISettings,
+    settingChangeAnimation, triggerSettingChangeAnimation,
+    currencyPreference, updateCurrencyPreference,
     isLoading,
   ]);
 

@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const data = await req.json();
 
     // Verify ownership and existence
     const existing = await prisma.goal.findFirst({
       where: {
         id,
+        userId,
         OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }],
       },
     });
@@ -61,10 +69,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
 
     const existing = await prisma.goal.findFirst({
       where: {
         id,
+        userId,
         OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }],
       },
     });

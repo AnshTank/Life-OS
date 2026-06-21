@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useApp } from '@/context/AppContext';
 import { toast } from 'sonner';
+import Link from 'next/link';
 
 interface LandingPageProps {
   onLogin: () => void;
@@ -152,6 +153,30 @@ export function LandingPage({ onLogin }: LandingPageProps) {
 
   return (
     <div ref={containerRef} className="relative min-h-screen overflow-hidden bg-[#fdfbf7]">
+      {/* Landing Navigation Header */}
+      <header className="sticky top-0 w-full z-45 bg-[#fdfbf7]/80 backdrop-blur-md border-b-2 border-dashed border-[#e8dac0] px-4 py-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-full bg-[#fefdfb] border-2 border-[#2d2d2d] flex items-center justify-center shadow-sm">
+              <Sparkles className="w-5 h-5 text-[#9b8ab8]" />
+            </div>
+            <span className="handwritten-lg text-2xl text-[#2d2d2d]">Life OS</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <Link href="/login">
+              <Button variant="ghost" className="handwritten text-lg text-[#5a5a5a] hover:text-[#2d2d2d] hover:bg-transparent">
+                Sign In
+              </Button>
+            </Link>
+            <Link href="/register">
+              <Button className="sketch-btn-primary py-2 px-4 text-sm font-semibold">
+                Sign Up
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </header>
+
       {/* Coffee stains background */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="coffee-stain top-20 left-10" />
@@ -233,9 +258,17 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                   disabled={isLoading}
                   className="sketch-btn-primary text-lg px-8 py-6"
                 >
-                  {isLoading ? 'Opening...' : 'Open Your Journal'}
+                  {isLoading ? 'Opening...' : 'Try Demo Journal'}
                   <ArrowRight className="w-5 h-5 ml-2" />
                 </Button>
+                <Link href="/register">
+                  <Button
+                    variant="outline"
+                    className="sketch-btn text-lg px-8 py-6 border-[#9b8ab8] text-[#7a6b94] hover:bg-[#f3f0f7]"
+                  >
+                    Create Account
+                  </Button>
+                </Link>
               </motion.div>
 
               {/* Stats */}

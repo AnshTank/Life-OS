@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { Project } from '@/types';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Clock, CheckCircle2, Target, Calendar, DollarSign, AlertTriangle, RefreshCw, Plus, Github, ExternalLink, Trash2 } from 'lucide-react';
+import { Clock, CheckCircle2, Target, Calendar, AlertTriangle, RefreshCw, Plus, Github, ExternalLink, Trash2, Terminal, BookOpen, BrainCircuit, Activity } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'react-hot-toast';
 import { encodeMilestone } from '@/utils/projectParsers';
+import { useApp } from '@/context/AppContext';
+import { formatCurrency, getCurrencyIcon } from '@/utils/currency';
 
 interface ProjectOverviewTabProps {
   project: Project;
@@ -25,6 +28,7 @@ interface ProjectOverviewTabProps {
 export function ProjectOverviewTab({
   project, onUpdate, milestones, tasksDone, msDone, isOverdue, daysLeft, healthScore, healthLabel, healthColor, typeConfig
 }: ProjectOverviewTabProps) {
+  const { currencyPreference } = useApp();
   const [newMilestone, setNewMilestone] = useState('');
   const [milestoneTarget, setMilestoneTarget] = useState('');
 
@@ -77,7 +81,7 @@ export function ProjectOverviewTab({
           { icon: CheckCircle2, label: 'Tasks', value: `${tasksDone}/${project.tasks.length}`, color: '#22c55e' },
           { icon: Target, label: 'Milestones', value: `${msDone}/${milestones.length}`, color: '#8b5cf6' },
           { icon: Calendar, label: 'Deadline', value: project.targetDate ? format(new Date(project.targetDate), 'MMM d') : '—', color: isOverdue ? '#ef4444' : '#8b5cf6' },
-          { icon: DollarSign, label: 'Earned', value: project.earnings ? `₹${(project.earnings / 1000).toFixed(0)}K` : '—', color: '#f59e0b' },
+          { icon: getCurrencyIcon(currencyPreference), label: 'Earned', value: project.earnings ? formatCurrency(project.earnings, currencyPreference, true) : '—', color: '#f59e0b' },
         ].map(s => (
           <div key={s.label} className="bg-[#f9f7f4] border border-[#e8dac0] rounded-xl p-3 text-center">
             <s.icon className="w-4 h-4 mx-auto mb-1" style={{ color: s.color }} />
@@ -138,6 +142,72 @@ export function ProjectOverviewTab({
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Developer Suite Launchpad */}
+      <div className="bg-[#fdfbf7] border-2 border-[#2d2d2d] rounded-2xl p-5 shadow-[4px_4px_0px_rgba(45,45,45,1)] space-y-4">
+        <div className="flex items-center gap-2 border-b border-[#2d2d2d]/10 pb-2">
+          <Terminal className="w-5 h-5 text-amber-600" />
+          <h3 className="font-caveat text-2xl font-bold text-[#2d2d2d]">Developer Suite Launchpad</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Notes Suite Card */}
+          <Link href={`/projects/${project.id}/notes`}>
+            <div className="group relative bg-white border-2 border-[#2d2d2d] hover:border-amber-500 rounded-xl p-4 cursor-pointer hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all hover:scale-[1.01] h-full flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="p-2 bg-amber-50 rounded-lg text-amber-600 border border-amber-200">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <Badge className="font-kalam text-[9px] bg-amber-100 text-amber-800 border border-amber-300">Notes & Logs</Badge>
+                </div>
+                <h4 className="font-caveat text-xl font-bold text-[#2d2d2d] group-hover:text-amber-600 transition-colors">Smart Notes</h4>
+                <p className="font-kalam text-xs text-slate-500 leading-tight">Premium 3-column folder, rich editor with fonts & color markers, backlinks, and AI meeting summaries.</p>
+              </div>
+              <div className="pt-3 font-kalam text-[10px] font-bold text-amber-600 group-hover:underline flex items-center gap-1">
+                Launch Notes Suite →
+              </div>
+            </div>
+          </Link>
+
+          {/* QA & Testing Card */}
+          <Link href={`/projects/${project.id}/qa`}>
+            <div className="group relative bg-white border-2 border-[#2d2d2d] hover:border-blue-500 rounded-xl p-4 cursor-pointer hover:shadow-[4px_4px_0px_rgba(59,130,246,1)] transition-all hover:scale-[1.01] h-full flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="p-2 bg-blue-50 rounded-lg text-blue-600 border border-blue-200">
+                    <BrainCircuit className="w-5 h-5" />
+                  </div>
+                  <Badge className="font-kalam text-[9px] bg-blue-100 text-blue-800 border border-blue-300">AI Testing</Badge>
+                </div>
+                <h4 className="font-caveat text-xl font-bold text-[#2d2d2d] group-hover:text-blue-600 transition-colors">QA & Testing Studio</h4>
+                <p className="font-kalam text-xs text-slate-500 leading-tight">Layman spec refiner, interactive test cases checklists, visual flows, visual screenshot diff slider, and Deploy Guardian check.</p>
+              </div>
+              <div className="pt-3 font-kalam text-[10px] font-bold text-blue-600 group-hover:underline flex items-center gap-1">
+                Launch QA Studio →
+              </div>
+            </div>
+          </Link>
+
+          {/* Mistake Journal Card */}
+          <Link href={`/projects/${project.id}/mistakes`}>
+            <div className="group relative bg-white border-2 border-[#2d2d2d] hover:border-red-500 rounded-xl p-4 cursor-pointer hover:shadow-[4px_4px_0px_rgba(239,68,68,1)] transition-all hover:scale-[1.01] h-full flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="p-2 bg-red-50 rounded-lg text-red-600 border border-red-200">
+                    <Activity className="w-5 h-5" />
+                  </div>
+                  <Badge className="font-kalam text-[9px] bg-red-100 text-red-800 border border-red-300">mistakes</Badge>
+                </div>
+                <h4 className="font-caveat text-xl font-bold text-[#2d2d2d] group-hover:text-red-600 transition-colors">Mistake Journal</h4>
+                <p className="font-kalam text-xs text-slate-500 leading-tight">Log errors, document root causes, prevent repeats, and track statistics via Recharts interactive charts.</p>
+              </div>
+              <div className="pt-3 font-kalam text-[10px] font-bold text-red-600 group-hover:underline flex items-center gap-1">
+                Launch Mistake Journal →
+              </div>
+            </div>
+          </Link>
         </div>
       </div>
 

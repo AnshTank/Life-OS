@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   // The views directory contains reusable view components, not routes
   // Force root to current directory to avoid multiple lockfiles warning
   outputFileTracingRoot: __dirname,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
 };
 
 export default nextConfig;

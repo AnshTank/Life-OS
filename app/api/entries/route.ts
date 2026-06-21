@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 
 export async function GET(req: NextRequest) {
   try {
+    const session = await auth();
+    const userId = (session?.user as any)?.id || 'user-1';
+
     const { searchParams } = new URL(req.url);
     const bookId = searchParams.get('bookId');
 
+    const where: any = { userId };
+    if (bookId) where.bookId = bookId;
+
     const entries = await prisma.journalEntry.findMany({
-      where: bookId ? { bookId } : {},
+      where,
       orderBy: { date: 'desc' }
     });
 
@@ -20,6 +27,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await auth();
+    const sessionUserId = (session?.user as any)?.id;
+
     const body = await req.json();
     const { userId, title, content, mood, chapter, tags, bookId, date } = body;
 
@@ -29,7 +39,7 @@ export async function POST(req: NextRequest) {
 
     const entry = await prisma.journalEntry.create({
       data: {
-        userId: userId || 'user-1',
+        userId: sessionUserId || userId || 'user-1',
         title: title || 'Untitled Entry',
         content,
         mood,

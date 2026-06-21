@@ -49,7 +49,7 @@ export function JournalPage() {
   const {
     journalEntries, journalBooks, activeBookId, setActiveBookId,
     addJournalEntry, updateJournalEntry, deleteJournalEntry,
-    addJournalBook, deleteJournalBook,
+    addJournalBook, deleteJournalBook, user
   } = useApp();
 
   // ─── View State ───
@@ -240,7 +240,7 @@ export function JournalPage() {
     if (editingEntry) {
       updateJournalEntry(editingEntry.id, { type: formType, title: formTitle, content: formContent, mood: formMood || undefined, tags, bookId });
     } else {
-      addJournalEntry({ userId: 'user-1', bookId, type: formType, title: formTitle, content: formContent, mood: formMood || undefined, tags, date: selectedDate ? new Date(selectedDate) : new Date() });
+      addJournalEntry({ userId: user?.id || 'user-1', bookId, type: formType, title: formTitle, content: formContent, mood: formMood || undefined, tags, date: selectedDate ? new Date(selectedDate) : new Date() });
     }
     setEntryFormOpen(false); resetForm();
   };

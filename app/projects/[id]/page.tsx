@@ -22,7 +22,6 @@ import { ProjectCodeTab } from '@/components/projects/tabs/ProjectCodeTab';
 import { ProjectFinanceTab } from '@/components/projects/tabs/ProjectFinanceTab';
 import { ProjectTimeLogTab } from '@/components/projects/tabs/ProjectTimeLogTab';
 import { ProjectStandupsTab } from '@/components/projects/tabs/ProjectStandupsTab';
-import { ProjectNotesTab } from '@/components/projects/tabs/ProjectNotesTab';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -300,7 +299,6 @@ export default function ProjectDetailPage() {
                 )}
                 <TabsTrigger value="timelog" className="flex-1 font-kalam text-xs data-[state=active]:bg-[#2d2d2d] data-[state=active]:text-[#fdfbf7] rounded-lg">Time Log</TabsTrigger>
                 <TabsTrigger value="standup" className="flex-1 font-kalam text-xs data-[state=active]:bg-[#2d2d2d] data-[state=active]:text-[#fdfbf7] rounded-lg">Standups</TabsTrigger>
-                <TabsTrigger value="notes" className="flex-1 font-kalam text-xs data-[state=active]:bg-[#2d2d2d] data-[state=active]:text-[#fdfbf7] rounded-lg">Notes</TabsTrigger>
               </TabsList>
 
               <div className="mt-2">
@@ -330,10 +328,6 @@ export default function ProjectDetailPage() {
 
                 <TabsContent value="standup" className="focus-visible:outline-none">
                   <ProjectStandupsTab project={project} onUpdate={onUpdate} standups={standups} />
-                </TabsContent>
-
-                <TabsContent value="notes" className="focus-visible:outline-none">
-                  <ProjectNotesTab project={project} onUpdate={onUpdate} structuredNotes={structuredNotes} />
                 </TabsContent>
               </div>
            </Tabs>

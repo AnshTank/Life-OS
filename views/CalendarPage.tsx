@@ -245,7 +245,7 @@ function EventDetailDialog({ event, open, onClose, onEdit, onDelete }: {
 
 // ===== MAIN =====
 export function CalendarPage() {
-  const { tasks, goals, habits, addTask } = useApp();
+  const { tasks, goals, habits, addTask, user } = useApp();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -284,7 +284,7 @@ export function CalendarPage() {
 
   // Fetchers
   const fetchGoogleEvents = useCallback(async () => {
-    if (!session) return; setIsSyncing(true);
+    if (!session || !(session as any).accessToken) return; setIsSyncing(true);
     try {
       const s = startOfMonth(subMonths(currentDate, 1)).toISOString();
       const e = endOfMonth(addMonths(currentDate, 2)).toISOString();
@@ -294,7 +294,7 @@ export function CalendarPage() {
   }, [session, currentDate]);
 
   const fetchHolidays = useCallback(async () => {
-    if (!session) return;
+    if (!session || !(session as any).accessToken) return;
     try {
       const s = new Date(currentDate.getFullYear(), 0, 1).toISOString();
       const e = new Date(currentDate.getFullYear(), 11, 31).toISOString();
@@ -303,7 +303,7 @@ export function CalendarPage() {
     } catch { /* silent */ }
   }, [session, currentDate]);
 
-  useEffect(() => { if (session) { fetchGoogleEvents(); fetchHolidays(); } }, [session, fetchGoogleEvents, fetchHolidays]);
+  useEffect(() => { if (session && (session as any).accessToken) { fetchGoogleEvents(); fetchHolidays(); } }, [session, fetchGoogleEvents, fetchHolidays]);
 
   // Events
   const events = useMemo(() => {
@@ -414,7 +414,7 @@ export function CalendarPage() {
     if (!eventTitle.trim()) return;
     const td = selectedDate || new Date();
     const due = eventTime ? new Date(`${format(td, 'yyyy-MM-dd')}T${eventTime}`) : td;
-    addTask({ userId: 'user-1', title: eventTitle, description: eventDescription, lifeArea: eventLifeArea, impact: eventImpact, urgency: eventUrgency, effort: eventEffort, dueDate: due, scheduledFor: eventTime ? due : undefined, status: 'todo', isRecurring: false, tags: [], sharedWithPartner: false });
+    addTask({ userId: user?.id || 'user-1', title: eventTitle, description: eventDescription, lifeArea: eventLifeArea, impact: eventImpact, urgency: eventUrgency, effort: eventEffort, dueDate: due, scheduledFor: eventTime ? due : undefined, status: 'todo', isRecurring: false, tags: [], sharedWithPartner: false });
     if (syncToGoogle && session) {
       try {
         const startDT = due.toISOString();
@@ -518,7 +518,7 @@ export function CalendarPage() {
 
             <div className="w-px h-8 bg-[#e2e8f0] mx-2" />
 
-            {!session ? (
+            {!session || !(session as any).accessToken ? (
               <Button onClick={() => signIn('google')} className="journal-btn font-kalam text-sm bg-white text-[#2d2d2d] hover:bg-[#f5f0e6] border-[#e8dac0]">
                 <img src="https://www.google.com/favicon.ico" alt="" className="w-4 h-4 mr-2" />Connect Google
               </Button>

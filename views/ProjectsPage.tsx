@@ -15,6 +15,7 @@ import {
 import { useApp } from '@/context/AppContext';
 import { ProjectNotesTab } from '@/components/projects/tabs/ProjectNotesTab';
 import { useRouter } from 'next/navigation';
+import { formatCurrency, getCurrencySymbol, getCurrencyIcon } from '@/utils/currency';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -154,7 +155,7 @@ function ProjectForm({ onSubmit, onCancel, initialData }: {
   const [demoUrl, setDemoUrl] = useState(initialData?.demoUrl || '');
   const [partnerId, setPartnerId] = useState(initialData?.partnerId || '');
   const [techSearch, setTechSearch] = useState('');
-  const { partners } = useApp();
+  const { partners, currencyPreference } = useApp();
 
   const filteredTech = techStackOptions.filter(t => t.toLowerCase().includes(techSearch.toLowerCase()) && !techStack.includes(t));
 
@@ -211,9 +212,9 @@ function ProjectForm({ onSubmit, onCancel, initialData }: {
       {(type === 'freelance') && (
         <div className="grid grid-cols-2 gap-4">
           <div><label className="font-kalam text-sm font-bold mb-1 block">Client</label>
-            <Input value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Who's paying?" className="journal-input" /></div>
-          <div><label className="font-kalam text-sm font-bold mb-1 block">Earnings (₹)</label>
-            <Input type="number" value={earnings} onChange={e => setEarnings(Number(e.target.value))} className="journal-input" /></div>
+            <Input value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Who's paying?" className="journal-input bg-white" /></div>
+          <div><label className="font-kalam text-sm font-bold mb-1 block">Earnings ({getCurrencySymbol(currencyPreference)})</label>
+            <Input type="number" value={earnings} onChange={e => setEarnings(Number(e.target.value))} className="journal-input bg-white" /></div>
         </div>
       )}
 
@@ -261,9 +262,10 @@ function ProjectForm({ onSubmit, onCancel, initialData }: {
 // PROJECT CARD (Enhanced)
 // ═══════════════════════════════════════════
 function ProjectCard({ project, onClick, onChangeStatus }: { project: Project; onClick: () => void; onChangeStatus: (status: ProjectStatus) => void }) {
+  const { currencyPreference } = useApp();
   const typeConfig = projectTypeConfig[project.type];
   const statusConfig = projectStatusConfig[project.status];
-  const TypeIcon = typeConfig.icon;
+  const TypeIcon = project.type === 'freelance' ? getCurrencyIcon(currencyPreference) : typeConfig.icon;
   const StatusIcon = statusConfig.icon;
   const daysLeft = project.targetDate ? differenceInDays(new Date(project.targetDate), new Date()) : null;
   const isOverdue = daysLeft !== null && daysLeft < 0 && project.status !== 'completed';
@@ -305,10 +307,18 @@ function ProjectCard({ project, onClick, onChangeStatus }: { project: Project; o
 
           <div className="space-y-3">
             <div className="flex items-center gap-3 text-[11px] font-kalam text-slate-500">
-              <span className="flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{tasksDone}/{project.tasks.length}</span>
-              <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{project.hoursSpent.toFixed(0)}h</span>
-              {project.earnings && <span className="flex items-center gap-1 text-green-600"><DollarSign className="w-3 h-3" />₹{(project.earnings / 1000).toFixed(0)}K</span>}
-              {daysLeft !== null && (
+                <span className="flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{tasksDone}/{project.tasks.length}</span>
+                <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{project.hoursSpent.toFixed(0)}h</span>
+                {project.earnings && (
+                  <span className="flex items-center gap-1 text-green-600">
+                    {(() => {
+                      const EarnedIcon = getCurrencyIcon(currencyPreference);
+                      return <EarnedIcon className="w-3 h-3" />;
+                    })()}
+                    {formatCurrency(project.earnings, currencyPreference, true)}
+                  </span>
+                )}
+                {daysLeft !== null && (
                 <span className={`flex items-center gap-1 ml-auto ${isOverdue ? 'text-red-500 font-bold' : daysLeft < 7 ? 'text-amber-500' : ''}`}>
                   <Calendar className="w-3 h-3" />{isOverdue ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d left`}
                 </span>
@@ -338,6 +348,7 @@ function ProjectCard({ project, onClick, onChangeStatus }: { project: Project; o
 function KanbanView({ projects, onSelect, onChangeStatus }: {
   projects: Project[]; onSelect: (p: Project) => void; onChangeStatus: (id: string, status: ProjectStatus) => void;
 }) {
+  const { currencyPreference } = useApp();
   const columns: { id: ProjectStatus; label: string; color: string; icon: React.ElementType }[] = [
     { id: 'idea', label: '💡 Ideas', color: '#94a3b8', icon: Lightbulb },
     { id: 'planning', label: '📋 Planning', color: '#f59e0b', icon: Target },
@@ -359,7 +370,7 @@ function KanbanView({ projects, onSelect, onChangeStatus }: {
             <div className="p-2.5 space-y-2 flex-1 max-h-[550px] overflow-y-auto no-scrollbar">
               {colProjects.map(project => {
                 const tc = projectTypeConfig[project.type];
-                const TI = tc.icon;
+                const TI = project.type === 'freelance' ? getCurrencyIcon(currencyPreference) : tc.icon;
                 return (
                   <div key={project.id} onClick={() => onSelect(project)}
                     className="p-3 bg-white border border-[#e8dac0] rounded-lg hover:shadow-sm hover:border-[#a99bc4] cursor-pointer transition-all group">
@@ -391,7 +402,7 @@ function KanbanView({ projects, onSelect, onChangeStatus }: {
 // ═══════════════════════════════════════════
 export function ProjectsPage() {
   const router = useRouter();
-  const { projects, addProject, updateProject, deleteProject } = useApp();
+  const { projects, addProject, updateProject, deleteProject, currencyPreference } = useApp();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
@@ -475,7 +486,7 @@ export function ProjectsPage() {
           { label: 'Done', value: projectStats.completed, color: '#22c55e', bg: 'bg-green-50', border: 'border-green-200' },
           { label: 'Overdue', value: projectStats.overdue, color: '#ef4444', bg: 'bg-red-50', border: 'border-red-200' },
           { label: 'Hours', value: `${projectStats.totalHours.toFixed(0)}h`, color: '#8b5cf6', bg: 'bg-purple-50', border: 'border-purple-200' },
-          { label: 'Earned', value: `₹${(projectStats.earnings / 1000).toFixed(0)}K`, color: '#22c55e', bg: 'bg-green-50', border: 'border-green-200' },
+          { label: 'Earned', value: formatCurrency(projectStats.earnings, currencyPreference, true), color: '#22c55e', bg: 'bg-green-50', border: 'border-green-200' },
         ].map(s => (
           <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl p-3 text-center`}>
             <p className="font-caveat text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
@@ -537,7 +548,7 @@ export function ProjectsPage() {
           {filteredProjects.map(project => {
             const tc = projectTypeConfig[project.type];
             const sc = projectStatusConfig[project.status];
-            const TI = tc.icon;
+            const TI = project.type === 'freelance' ? getCurrencyIcon(currencyPreference) : tc.icon;
             const daysLeft = project.targetDate ? differenceInDays(new Date(project.targetDate), new Date()) : null;
             return (
               <div key={project.id} onClick={() => router.push(`/projects/${project.id}`)}

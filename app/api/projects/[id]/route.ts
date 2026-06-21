@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     // Try finding by ID first, then by Slug
     const project = await prisma.project.findFirst({
       where: {
+        userId,
         OR: [
           { id: id },
           { slug: id }
@@ -31,11 +39,26 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id: idOrSlug } = await params;
     const body = await req.json();
 
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     // Resolve slug to real ID if needed
     let realId = idOrSlug;
     if (idOrSlug.length !== 24) { // Basic ObjectId check
-      const p = await prisma.project.findUnique({ where: { slug: idOrSlug } });
-      if (p) realId = p.id;
+      const p = await prisma.project.findFirst({ where: { slug: idOrSlug, userId } });
+      if (p) {
+        realId = p.id;
+      } else {
+        return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+      }
+    } else {
+      const p = await prisma.project.findFirst({ where: { id: idOrSlug, userId } });
+      if (!p) {
+        return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+      }
     }
 
     const {
@@ -79,10 +102,25 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   try {
     const { id: idOrSlug } = await params;
     
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     let realId = idOrSlug;
     if (idOrSlug.length !== 24) {
-      const p = await prisma.project.findUnique({ where: { slug: idOrSlug } });
-      if (p) realId = p.id;
+      const p = await prisma.project.findFirst({ where: { slug: idOrSlug, userId } });
+      if (p) {
+        realId = p.id;
+      } else {
+        return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+      }
+    } else {
+      const p = await prisma.project.findFirst({ where: { id: idOrSlug, userId } });
+      if (!p) {
+        return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+      }
     }
 
     await prisma.project.delete({

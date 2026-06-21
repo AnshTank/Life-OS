@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Project } from '@/types';
+import { useApp } from '@/context/AppContext';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +18,7 @@ interface ProjectFinanceTabProps {
 }
 
 export function ProjectFinanceTab({ project, onUpdate, invoices }: ProjectFinanceTabProps) {
+  const { currencyPreference } = useApp();
   const [invAmount, setInvAmount] = useState('');
   const [invClient, setInvClient] = useState('');
   const [invDue, setInvDue] = useState('');
@@ -51,7 +54,7 @@ export function ProjectFinanceTab({ project, onUpdate, invoices }: ProjectFinanc
     <div className="space-y-4 pt-4">
       <div className="grid grid-cols-3 gap-3 mb-2">
         <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
-          <p className="font-caveat text-2xl font-bold text-green-700">₹{project.earnings?.toLocaleString() || 0}</p>
+          <p className="font-caveat text-2xl font-bold text-green-700">{formatCurrency(project.earnings || 0, currencyPreference)}</p>
           <p className="font-kalam text-[11px] text-green-700">Total Revenue</p>
         </div>
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
@@ -60,7 +63,7 @@ export function ProjectFinanceTab({ project, onUpdate, invoices }: ProjectFinanc
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
           <p className="font-caveat text-2xl font-bold text-amber-700">
-            {project.hoursSpent > 0 ? `₹${(Math.round((project.earnings || 0) / project.hoursSpent)).toLocaleString()}` : '—'}
+            {project.hoursSpent > 0 ? formatCurrency(Math.round((project.earnings || 0) / project.hoursSpent), currencyPreference) : '—'}
           </p>
           <p className="font-kalam text-[11px] text-amber-700">Effective Rate/hr</p>
         </div>
@@ -69,9 +72,9 @@ export function ProjectFinanceTab({ project, onUpdate, invoices }: ProjectFinanc
       <div className="bg-white border-2 border-[#e8dac0] rounded-xl p-4 mb-4">
         <h4 className="font-caveat text-lg font-bold flex items-center gap-2 mb-3">🧾 Create Invoice</h4>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
-          <Input type="number" value={invAmount} onChange={e => setInvAmount(e.target.value)} placeholder="Amount (₹)" className="journal-input text-sm" />
-          <Input value={invClient} onChange={e => setInvClient(e.target.value)} placeholder="Client Name" className="journal-input text-sm" />
-          <Input type="date" value={invDue} onChange={e => setInvDue(e.target.value)} className="journal-input text-sm" />
+          <Input type="number" value={invAmount} onChange={e => setInvAmount(e.target.value)} placeholder={`Amount (${getCurrencySymbol(currencyPreference)})`} className="journal-input text-sm bg-white border-2 border-slate-400" />
+          <Input value={invClient} onChange={e => setInvClient(e.target.value)} placeholder="Client Name" className="journal-input text-sm bg-white border-2 border-slate-400" />
+          <Input type="date" value={invDue} onChange={e => setInvDue(e.target.value)} className="journal-input text-sm bg-white border-2 border-slate-400" />
           <Button onClick={addInvoice} className="journal-btn-primary h-full">Create</Button>
         </div>
         <p className="font-kalam text-[10px] text-slate-500">Invoices will automatically update Total Revenue when marked as Paid.</p>
@@ -83,7 +86,7 @@ export function ProjectFinanceTab({ project, onUpdate, invoices }: ProjectFinanc
           [...invoices].reverse().map(inv => (
             <div key={inv.id} className="flex justify-between items-center p-3 bg-[#f9f7f4] border border-[#e8dac0] rounded-lg">
               <div>
-                <p className="font-caveat text-xl font-bold text-[#2d2d2d]">₹{inv.amount.toLocaleString()}</p>
+                <p className="font-caveat text-xl font-bold text-[#2d2d2d]">{formatCurrency(inv.amount, currencyPreference)}</p>
                 <p className="font-kalam text-[11px] text-slate-500">To {inv.clientName} • Due {inv.dueDate}</p>
               </div>
               <div className="flex items-center gap-2">

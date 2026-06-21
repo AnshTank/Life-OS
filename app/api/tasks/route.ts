@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 
 function computePriorityScore(impact: number, urgency: number, effort: number): number {
   return Math.round((impact * 0.4 + urgency * 0.4 + (10 - effort) * 0.2) * 10) / 10;
@@ -8,6 +9,12 @@ function computePriorityScore(impact: number, urgency: number, effort: number): 
 // GET /api/tasks — paginated, filtered, sorted
 export async function GET(req: NextRequest) {
   try {
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
     const lifeArea = searchParams.get('lifeArea');
@@ -20,7 +27,7 @@ export async function GET(req: NextRequest) {
     // Build where clause — always exclude soft-deleted
     // MongoDB needs OR for null: field is null OR field is not set
     const notDeleted = { OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] };
-    const where: Record<string, unknown> = { ...notDeleted };
+    const where: Record<string, any> = { userId, ...notDeleted };
 
     if (status && status !== 'all') {
       where.status = status;
@@ -76,6 +83,12 @@ export async function GET(req: NextRequest) {
 // POST /api/tasks — create single task
 export async function POST(req: NextRequest) {
   try {
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const body = await req.json();
     const {
       title, description, lifeArea, goalId,
@@ -93,7 +106,7 @@ export async function POST(req: NextRequest) {
 
     const task = await prisma.task.create({
       data: {
-        userId: 'user-1', // Single user for now
+        userId,
         title: title.trim(),
         description: description?.trim() || null,
         lifeArea: lifeArea || 'career',

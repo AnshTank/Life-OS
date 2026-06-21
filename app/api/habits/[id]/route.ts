@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 
 // PATCH /api/habits/[id] — update single habit
 export async function PATCH(
@@ -8,10 +9,16 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const body = await req.json();
 
     const existing = await prisma.habit.findFirst({
-      where: { id, OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] },
+      where: { id, userId, OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] },
     });
 
     if (!existing) {
@@ -48,9 +55,14 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
 
     const existing = await prisma.habit.findFirst({
-      where: { id, OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] },
+      where: { id, userId, OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] },
     });
 
     if (!existing) {

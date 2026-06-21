@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { 
   TrendingUp, Plus, Calculator, Star,
@@ -29,6 +29,7 @@ import type { Investment, InvestmentType, Transaction, SavingsGoal, Subscription
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart as ReLineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar, Area, AreaChart, RadialBarChart, RadialBar, ComposedChart } from 'recharts';
 import { format, subMonths, startOfMonth, endOfMonth, isWithinInterval, differenceInMonths, addMonths } from 'date-fns';
 import { toast } from 'sonner';
+import { formatCurrency, getCurrencySymbol, getCurrencyIcon, SUPPORTED_CURRENCIES, fetchExchangeRate } from '@/utils/currency';
 
 // ═════════════════════════════════════════
 // CONSTANTS & CONFIG
@@ -161,25 +162,26 @@ function ScoreRow({ label, ok, detail }: { label: string; ok: boolean; detail: s
 // INVESTMENT FORM
 // ═════════════════════════════════════════
 function InvestmentForm({ onSubmit, onCancel }: { onSubmit: (inv: Omit<Investment, 'id' | 'createdAt' | 'updatedAt'>) => void; onCancel: () => void }) {
+  const { user, currencyPreference } = useApp();
   const [name, setName] = useState(''); const [type, setType] = useState<InvestmentType>('stock');
   const [amount, setAmount] = useState(''); const [quantity, setQuantity] = useState(''); const [currentValue, setCurrentValue] = useState('');
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault(); if (!name || !amount) { toast.error('Fill required fields'); return; }
     const inv = parseFloat(amount); const cv = currentValue ? parseFloat(currentValue) : inv; const qty = quantity ? parseFloat(quantity) : 1;
-    onSubmit({ userId: 'user-1', name, type, quantity: qty, investedAmount: inv, currentValue: cv, averagePrice: inv / qty, currentPrice: cv / qty, pnl: cv - inv, pnlPercent: ((cv - inv) / inv) * 100, symbol: '', sector: '', notes: '' });
+    onSubmit({ userId: user?.id || 'user-1', name, type, quantity: qty, investedAmount: inv, currentValue: cv, averagePrice: inv / qty, currentPrice: cv / qty, pnl: cv - inv, pnlPercent: ((cv - inv) / inv) * 100, symbol: '', sector: '', notes: '' });
   };
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div><label className="font-kalam text-sm font-bold mb-1 block">Name</label><Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g., Reliance, Nifty 50..." className="journal-input" /></div>
+      <div><label className="font-kalam text-sm font-bold mb-1 block">Name</label><Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g., Reliance, Nifty 50..." className="journal-input bg-white" /></div>
       <div className="grid grid-cols-2 gap-4">
         <div><label className="font-kalam text-sm font-bold mb-1 block">Type</label>
           <Select value={type} onValueChange={v => setType(v as InvestmentType)}><SelectTrigger className="journal-input"><SelectValue /></SelectTrigger>
             <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d]">{Object.entries(investmentTypeLabels).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent></Select></div>
-        <div><label className="font-kalam text-sm font-bold mb-1 block">Qty</label><Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="1" className="journal-input" /></div>
+        <div><label className="font-kalam text-sm font-bold mb-1 block">Qty</label><Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="1" className="journal-input bg-white" /></div>
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <div><label className="font-kalam text-sm font-bold mb-1 block">Invested (₹)</label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-sm font-bold mb-1 block">Current Value (₹)</label><Input type="number" value={currentValue} onChange={e => setCurrentValue(e.target.value)} className="journal-input" /></div>
+        <div><label className="font-kalam text-sm font-bold mb-1 block">Invested ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-sm font-bold mb-1 block">Current Value ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={currentValue} onChange={e => setCurrentValue(e.target.value)} className="journal-input bg-white" /></div>
       </div>
       <div className="flex gap-2 pt-2"><Button type="submit" className="flex-1 journal-btn-primary">Add</Button><Button type="button" onClick={onCancel} variant="outline" className="journal-btn">Cancel</Button></div>
     </form>
@@ -190,25 +192,103 @@ function InvestmentForm({ onSubmit, onCancel }: { onSubmit: (inv: Omit<Investmen
 // TRANSACTION FORM
 // ═════════════════════════════════════════
 function TransactionForm({ onSubmit, onCancel }: { onSubmit: (t: Omit<Transaction, 'id' | 'createdAt'>) => void; onCancel: () => void }) {
+  const { user, currencyPreference } = useApp();
   const [type, setType] = useState<'income' | 'expense'>('expense');
   const [amount, setAmount] = useState(''); const [desc, setDesc] = useState(''); const [category, setCategory] = useState('');
+  const [txCurrency, setTxCurrency] = useState(currencyPreference || 'INR');
+  const [isConverting, setIsConverting] = useState(false);
+
+  useEffect(() => {
+    if (currencyPreference) {
+      setTxCurrency(currencyPreference);
+    }
+  }, [currencyPreference]);
+
   const cats = type === 'expense' ? ['Housing', 'Groceries', 'Transport', 'Dining', 'Entertainment', 'Shopping', 'Bills', 'Healthcare', 'Subscriptions', 'Other'] : ['Salary', 'Freelance', 'Investment', 'Cashback', 'Gift', 'Other'];
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault(); if (!amount || !desc || !category) { toast.error('Fill all fields'); return; }
-    onSubmit({ userId: 'user-1', type, amount: parseFloat(amount), description: desc, category, date: new Date(), tags: [] });
+  
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault(); 
+    if (!amount || !desc || !category) { toast.error('Fill all fields'); return; }
+    
+    setIsConverting(true);
+    try {
+      const parsedAmount = parseFloat(amount);
+      if (isNaN(parsedAmount)) {
+        toast.error('Invalid amount');
+        return;
+      }
+      
+      let finalAmount = parsedAmount;
+      let extraNote = "";
+      
+      if (txCurrency !== currencyPreference) {
+        const rate = await fetchExchangeRate(txCurrency, currencyPreference);
+        finalAmount = parsedAmount * rate;
+        extraNote = ` [Converted from ${getCurrencySymbol(txCurrency)}${parsedAmount.toFixed(2)} at rate of ${rate.toFixed(4)}]`;
+      }
+      
+      onSubmit({ 
+        userId: user?.id || 'user-1', 
+        type, 
+        amount: finalAmount, 
+        description: desc + extraNote, 
+        category, 
+        date: new Date(), 
+        tags: txCurrency !== currencyPreference ? ['converted', txCurrency] : [] 
+      });
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Failed to convert currency');
+    } finally {
+      setIsConverting(false);
+    }
   };
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="flex gap-2">
-        <Button type="button" onClick={() => setType('expense')} className={`flex-1 font-kalam ${type === 'expense' ? 'bg-red-100 text-red-700 border-red-300' : 'bg-white text-slate-600 border-slate-200'} border-2`}><ArrowDownRight className="w-4 h-4 mr-1" /> Expense</Button>
-        <Button type="button" onClick={() => setType('income')} className={`flex-1 font-kalam ${type === 'income' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-white text-slate-600 border-slate-200'} border-2`}><ArrowUpRight className="w-4 h-4 mr-1" /> Income</Button>
+        <Button type="button" onClick={() => setType('expense')} className={`flex-1 font-kalam ${type === 'expense' ? 'bg-red-100 text-red-700 border-red-300' : 'bg-white text-slate-600 border-slate-200'} border-2`} disabled={isConverting}><ArrowDownRight className="w-4 h-4 mr-1" /> Expense</Button>
+        <Button type="button" onClick={() => setType('income')} className={`flex-1 font-kalam ${type === 'income' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-white text-slate-600 border-slate-200'} border-2`} disabled={isConverting}><ArrowUpRight className="w-4 h-4 mr-1" /> Income</Button>
       </div>
-      <div><label className="font-kalam text-sm font-bold mb-1 block">Amount (₹)</label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} className="journal-input text-xl font-caveat" /></div>
-      <div><label className="font-kalam text-sm font-bold mb-1 block">Description</label><Input value={desc} onChange={e => setDesc(e.target.value)} placeholder="What was this for?" className="journal-input" /></div>
+      <div>
+        <label className="font-kalam text-sm font-bold mb-1 block">Amount</label>
+        <div className="flex gap-2">
+          <Select value={txCurrency} onValueChange={setTxCurrency} disabled={isConverting}>
+            <SelectTrigger className="journal-input w-28 shrink-0 bg-white">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d]">
+              {SUPPORTED_CURRENCIES.map(c => (
+                <SelectItem key={c.code} value={c.code}>{c.code} ({c.symbol})</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input 
+            type="number" 
+            step="any"
+            value={amount} 
+            onChange={e => setAmount(e.target.value)} 
+            className="journal-input text-xl font-caveat flex-1 bg-white" 
+            disabled={isConverting}
+            placeholder="0.00"
+          />
+        </div>
+        {txCurrency !== currencyPreference && (
+          <p className="text-xs font-kalam text-slate-500 mt-1 italic animate-pulse">
+            Will be logged in {currencyPreference} using live rates.
+          </p>
+        )}
+      </div>
+      <div><label className="font-kalam text-sm font-bold mb-1 block">Description</label><Input value={desc} onChange={e => setDesc(e.target.value)} placeholder="What was this for?" className="journal-input bg-white" disabled={isConverting} /></div>
       <div><label className="font-kalam text-sm font-bold mb-1 block">Category</label>
-        <div className="flex flex-wrap gap-2">{cats.map(c => <button key={c} type="button" onClick={() => setCategory(c)} className={`px-3 py-1.5 rounded-lg text-xs font-kalam font-bold border-2 transition-all ${category === c ? 'bg-[#2d2d2d] text-white border-[#2d2d2d]' : 'bg-white text-slate-600 border-[#e8dac0] hover:border-slate-400'}`}>{c}</button>)}</div>
+        <div className="flex flex-wrap gap-2">{cats.map(c => <button key={c} type="button" onClick={() => setCategory(c)} disabled={isConverting} className={`px-3 py-1.5 rounded-lg text-xs font-kalam font-bold border-2 transition-all ${category === c ? 'bg-[#2d2d2d] text-white border-[#2d2d2d]' : 'bg-white text-slate-600 border-[#e8dac0] hover:border-slate-400'}`}>{c}</button>)}</div>
       </div>
-      <div className="flex gap-2 pt-2"><Button type="submit" className="flex-1 journal-btn-primary">Log Transaction</Button><Button type="button" onClick={onCancel} variant="outline" className="journal-btn">Cancel</Button></div>
+      <div className="flex gap-2 pt-2">
+        <Button type="submit" className="flex-1 journal-btn-primary" disabled={isConverting}>
+          {isConverting ? "Converting..." : "Log Transaction"}
+        </Button>
+        <Button type="button" onClick={onCancel} variant="outline" className="journal-btn" disabled={isConverting}>Cancel</Button>
+      </div>
     </form>
   );
 }
@@ -217,7 +297,9 @@ function TransactionForm({ onSubmit, onCancel }: { onSubmit: (t: Omit<Transactio
 // TAB 1: DASHBOARD — Financial Command Center
 // ══════════════════════════════════════════════════════════════
 function FinancialDashboard() {
-  const { investments, transactions, emis, sips, stats, subscriptions, savingsGoals } = useApp();
+  const { investments, transactions, emis, sips, stats, subscriptions, savingsGoals, currencyPreference } = useApp();
+  const fmt = useCallback((n: number, compact = false) => formatCurrency(n, currencyPreference, compact), [currencyPreference]);
+  
   const income = useMemo(() => transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0), [transactions]);
   const expenses = useMemo(() => transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0), [transactions]);
   const savings = Math.max(0, income - expenses);
@@ -246,13 +328,13 @@ function FinancialDashboard() {
     <div className="space-y-5">
       <JarvisNote title="JARVIS Financial Pulse" rotate={0.3}>
         {burnRate < 60 ? `Excellent discipline! You're saving ${(100 - burnRate).toFixed(0)}% of your income. Your net worth is ${fmt(netWorth, true)}.`
-          : burnRate < 80 ? `You're spending ${burnRate.toFixed(0)}% of your income. Try trimming subscriptions (₹${Math.round(subTotal)}/mo) to boost savings.`
+          : burnRate < 80 ? `You're spending ${burnRate.toFixed(0)}% of your income. Try trimming subscriptions (${fmt(Math.round(subTotal))}/mo) to boost savings.`
           : `Warning: You're spending ${burnRate.toFixed(0)}% of income. Consider the 50/30/20 rule in the Budget tab.`}
       </JarvisNote>
 
       {/* Top Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <StatCard label="Net Worth" value={fmt(netWorth, true)} icon={CircleDollarSign} color="#2d2d2d" />
+        <StatCard label="Net Worth" value={fmt(netWorth, true)} icon={getCurrencyIcon(currencyPreference)} color="#2d2d2d" />
         <StatCard label="Portfolio" value={fmt(stats.portfolioValue, true)} icon={BarChart3} color={stats.totalPnl >= 0 ? '#22c55e' : '#ef4444'} sub={`${stats.totalPnl >= 0 ? '+' : ''}${stats.totalInvested > 0 ? ((stats.totalPnl / stats.totalInvested) * 100).toFixed(1) : '0'}%`} />
         <StatCard label="Income" value={fmt(income, true)} color="#22c55e" icon={ArrowUpRight} />
         <StatCard label="Expenses" value={fmt(expenses, true)} color="#ef4444" icon={ArrowDownRight} />
@@ -339,7 +421,8 @@ function FinancialDashboard() {
 // TAB 2: PORTFOLIO — Investment Management
 // ══════════════════════════════════════════════════════════════
 function PortfolioOverview() {
-  const { investments, stats, transactions, deleteInvestment } = useApp();
+  const { investments, stats, transactions, deleteInvestment, currencyPreference } = useApp();
+  const fmt = useCallback((n: number, compact = false) => formatCurrency(n, currencyPreference, compact), [currencyPreference]);
   const income = useMemo(() => transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0), [transactions]);
   const expenses = useMemo(() => transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0), [transactions]);
   const savings = Math.max(0, income - expenses);
@@ -440,7 +523,9 @@ function PortfolioOverview() {
 // TAB 3: BUDGET — Enhanced Expense Intelligence
 // ══════════════════════════════════════════════════════════════
 function BudgetLedger() {
-  const { transactions, addTransaction, deleteTransaction, subscriptions, deleteSubscription } = useApp();
+  const { transactions, addTransaction, deleteTransaction, subscriptions, deleteSubscription, currencyPreference } = useApp();
+  const fmt = useCallback((n: number, compact = false) => formatCurrency(n, currencyPreference, compact), [currencyPreference]);
+  
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [showSubs, setShowSubs] = useState(false);
 
@@ -490,7 +575,7 @@ function BudgetLedger() {
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <StatCard label="Income" value={fmt(income === 1 ? 0 : income, true)} color="#22c55e" icon={ArrowUpRight} />
         <StatCard label="Expenses" value={fmt(expenses, true)} color="#ef4444" icon={ArrowDownRight} />
-        <StatCard label="Net" value={fmt(net, true)} color={net >= 0 ? '#3b82f6' : '#ef4444'} icon={DollarSign} />
+        <StatCard label="Net" value={fmt(net, true)} color={net >= 0 ? '#3b82f6' : '#ef4444'} icon={getCurrencyIcon(currencyPreference)} />
         <StatCard label="Daily Burn" value={fmt(Math.round(dailyBurn))} color="#f59e0b" icon={Flame} sub={`~${fmt(Math.round(projectedMonthly), true)}/mo projected`} />
         <div className="bg-white border border-[#e8dac0] rounded-xl p-4 flex items-center justify-center">
           <Button onClick={() => setIsAddOpen(true)} className="journal-btn-primary w-full"><Plus className="w-4 h-4 mr-1" /> Log Transaction</Button>
@@ -589,13 +674,14 @@ function BudgetBar({ label, target, actual, amount, color }: { label: string; ta
 // TAB 4: SAVINGS GOALS
 // ══════════════════════════════════════════════════════════════
 function SavingsGoalsTab() {
-  const { savingsGoals, addSavingsGoal, updateSavingsGoal, deleteSavingsGoal } = useApp();
+  const { savingsGoals, addSavingsGoal, updateSavingsGoal, deleteSavingsGoal, user, currencyPreference } = useApp();
+  const fmt = useCallback((n: number, compact = false) => formatCurrency(n, currencyPreference, compact), [currencyPreference]);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newGoal, setNewGoal] = useState({ name: '', target: '', monthly: '', icon: '🎯', color: '#7a9eb8', priority: 'medium' as const });
 
   const handleAdd = () => {
     if (!newGoal.name || !newGoal.target) { toast.error('Fill required fields'); return; }
-    addSavingsGoal({ userId: 'user-1', name: newGoal.name, targetAmount: parseFloat(newGoal.target), currentSaved: 0, priority: newGoal.priority, color: newGoal.color, icon: newGoal.icon, monthlySavingTarget: parseFloat(newGoal.monthly) || 5000 });
+    addSavingsGoal({ userId: user?.id || 'user-1', name: newGoal.name, targetAmount: parseFloat(newGoal.target), currentSaved: 0, priority: newGoal.priority, color: newGoal.color, icon: newGoal.icon, monthlySavingTarget: parseFloat(newGoal.monthly) || 5000 });
     setIsAddOpen(false); setNewGoal({ name: '', target: '', monthly: '', icon: '🎯', color: '#7a9eb8', priority: 'medium' });
   };
 
@@ -666,15 +752,15 @@ function SavingsGoalsTab() {
         <DialogContent className="journal-modal max-w-md"><DialogHeader><DialogTitle className="font-caveat text-2xl">Create Savings Goal</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="flex gap-3">
-              <div className="flex-1"><label className="font-kalam text-sm font-bold mb-1 block">Goal Name</label><Input value={newGoal.name} onChange={e => setNewGoal(p => ({ ...p, name: e.target.value }))} placeholder="e.g., MacBook Pro" className="journal-input" /></div>
+              <div className="flex-1"><label className="font-kalam text-sm font-bold mb-1 block">Goal Name</label><Input value={newGoal.name} onChange={e => setNewGoal(p => ({ ...p, name: e.target.value }))} placeholder="e.g., MacBook Pro" className="journal-input bg-white" /></div>
               <div className="w-20"><label className="font-kalam text-sm font-bold mb-1 block">Icon</label>
                 <Select value={newGoal.icon} onValueChange={v => setNewGoal(p => ({ ...p, icon: v }))}><SelectTrigger className="journal-input text-xl"><SelectValue /></SelectTrigger>
                   <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d]">{['🎯', '💻', '✈️', '🏠', '🚗', '🛡️', '📱', '🎓', '💍', '🏋️'].map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}</SelectContent></Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="font-kalam text-sm font-bold mb-1 block">Target (₹)</label><Input type="number" value={newGoal.target} onChange={e => setNewGoal(p => ({ ...p, target: e.target.value }))} className="journal-input" /></div>
-              <div><label className="font-kalam text-sm font-bold mb-1 block">Monthly Save (₹)</label><Input type="number" value={newGoal.monthly} onChange={e => setNewGoal(p => ({ ...p, monthly: e.target.value }))} className="journal-input" /></div>
+              <div><label className="font-kalam text-sm font-bold mb-1 block">Target ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={newGoal.target} onChange={e => setNewGoal(p => ({ ...p, target: e.target.value }))} className="journal-input bg-white" /></div>
+              <div><label className="font-kalam text-sm font-bold mb-1 block">Monthly Save ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={newGoal.monthly} onChange={e => setNewGoal(p => ({ ...p, monthly: e.target.value }))} className="journal-input bg-white" /></div>
             </div>
             <Button onClick={handleAdd} className="w-full journal-btn-primary">Create Goal</Button>
           </div>
@@ -688,6 +774,8 @@ function SavingsGoalsTab() {
 // TAB 5: SIP PLANNER (Enhanced)
 // ══════════════════════════════════════════════════════════════
 function SIPCalculator() {
+  const { currencyPreference } = useApp();
+  const fmt = useCallback((n: number, compact = false) => formatCurrency(n, currencyPreference, compact), [currencyPreference]);
   const [mode, setMode] = useState<'sip' | 'lumpsum' | 'goalbased'>('sip');
   const [monthlyInvestment, setMonthlyInvestment] = useState(5000);
   const [expectedReturn, setExpectedReturn] = useState(12);
@@ -758,14 +846,14 @@ function SIPCalculator() {
         <>
           <JarvisNote title="JARVIS Future Planner" rotate={0.3}>
             {adjustForInflation ? `At ${inflationRate}% inflation, your ${fmt(sipCalc.futureValue, true)} reflects real purchasing power.`
-              : `₹${monthlyInvestment.toLocaleString()}/mo at ${expectedReturn}% for ${years} years → ${fmt(sipCalc.futureValue, true)}.`}
+              : `${fmt(monthlyInvestment)}/mo at ${expectedReturn}% for ${years} years → ${fmt(sipCalc.futureValue, true)}.`}
           </JarvisNote>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Monthly (₹)</label><Input type="number" value={monthlyInvestment} onChange={e => setMonthlyInvestment(+e.target.value)} className="journal-input" /></div>
-            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Return (%)</label><Input type="number" value={expectedReturn} onChange={e => setExpectedReturn(+e.target.value)} className="journal-input" /></div>
-            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Years</label><Input type="number" value={years} onChange={e => setYears(+e.target.value)} className="journal-input" /></div>
-            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Step-up (%/yr)</label><Input type="number" value={stepUp} onChange={e => setStepUp(+e.target.value)} className="journal-input" /></div>
-            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Inflation (%)</label><Input type="number" value={inflationRate} onChange={e => setInflationRate(+e.target.value)} className="journal-input" /></div>
+            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Monthly ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={monthlyInvestment} onChange={e => setMonthlyInvestment(+e.target.value)} className="journal-input bg-white" /></div>
+            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Return (%)</label><Input type="number" value={expectedReturn} onChange={e => setExpectedReturn(+e.target.value)} className="journal-input bg-white" /></div>
+            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Years</label><Input type="number" value={years} onChange={e => setYears(+e.target.value)} className="journal-input bg-white" /></div>
+            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Step-up (%/yr)</label><Input type="number" value={stepUp} onChange={e => setStepUp(+e.target.value)} className="journal-input bg-white" /></div>
+            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Inflation (%)</label><Input type="number" value={inflationRate} onChange={e => setInflationRate(+e.target.value)} className="journal-input bg-white" /></div>
           </div>
           <label className="flex items-center gap-2 cursor-pointer px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg w-fit">
             <input type="checkbox" checked={adjustForInflation} onChange={e => setAdjustForInflation(e.target.checked)} className="w-4 h-4 rounded" />
@@ -792,11 +880,11 @@ function SIPCalculator() {
 
       {mode === 'lumpsum' && (
         <>
-          <JarvisNote title="JARVIS Lump Sum" rotate={-0.3}>One-time ₹{lumpsum.toLocaleString()} at {expectedReturn}% for {years} years → {fmt(lumpsumCalc.futureValue, true)}.</JarvisNote>
+          <JarvisNote title="JARVIS Lump Sum" rotate={-0.3}>One-time {fmt(lumpsum)} at {expectedReturn}% for {years} years → {fmt(lumpsumCalc.futureValue, true)}.</JarvisNote>
           <div className="grid grid-cols-3 gap-3">
-            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Amount (₹)</label><Input type="number" value={lumpsum} onChange={e => setLumpsum(+e.target.value)} className="journal-input" /></div>
-            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Return (%)</label><Input type="number" value={expectedReturn} onChange={e => setExpectedReturn(+e.target.value)} className="journal-input" /></div>
-            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Years</label><Input type="number" value={years} onChange={e => setYears(+e.target.value)} className="journal-input" /></div>
+            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Amount ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={lumpsum} onChange={e => setLumpsum(+e.target.value)} className="journal-input bg-white" /></div>
+            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Return (%)</label><Input type="number" value={expectedReturn} onChange={e => setExpectedReturn(+e.target.value)} className="journal-input bg-white" /></div>
+            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Years</label><Input type="number" value={years} onChange={e => setYears(+e.target.value)} className="journal-input bg-white" /></div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <StatCard label="Invested" value={fmt(lumpsum, true)} icon={Banknote} />
@@ -821,9 +909,9 @@ function SIPCalculator() {
         <>
           <JarvisNote title="JARVIS Goal-Based SIP" rotate={0.3}>To reach {fmt(goalAmount, true)} in {goalYears} years at {goalReturn}% returns, you need {fmt(goalBasedCalc.monthlyNeeded)}/month.</JarvisNote>
           <div className="grid grid-cols-3 gap-3">
-            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Goal (₹)</label><Input type="number" value={goalAmount} onChange={e => setGoalAmount(+e.target.value)} className="journal-input" /></div>
-            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Years</label><Input type="number" value={goalYears} onChange={e => setGoalYears(+e.target.value)} className="journal-input" /></div>
-            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Return (%)</label><Input type="number" value={goalReturn} onChange={e => setGoalReturn(+e.target.value)} className="journal-input" /></div>
+            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Goal ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={goalAmount} onChange={e => setGoalAmount(+e.target.value)} className="journal-input bg-white" /></div>
+            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Years</label><Input type="number" value={goalYears} onChange={e => setGoalYears(+e.target.value)} className="journal-input bg-white" /></div>
+            <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Return (%)</label><Input type="number" value={goalReturn} onChange={e => setGoalReturn(+e.target.value)} className="journal-input bg-white" /></div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <StatCard label="Monthly SIP" value={fmt(goalBasedCalc.monthlyNeeded)} color="#a855f7" icon={Banknote} />
@@ -840,12 +928,12 @@ function SIPCalculator() {
           <div className="text-center p-4 bg-green-50 rounded-xl border border-green-200">
             <p className="font-kalam text-xs font-bold text-green-700 mb-1">Start at 25</p>
             <p className="font-caveat text-2xl font-bold text-green-600">{fmt(compoundingComparison.early, true)}</p>
-            <p className="font-kalam text-[11px] text-green-600">₹5K/mo × 35 yrs</p>
+            <p className="font-kalam text-[11px] text-green-600">{fmt(5000, true)}/mo × 35 yrs</p>
           </div>
           <div className="text-center p-4 bg-amber-50 rounded-xl border border-amber-200">
             <p className="font-kalam text-xs font-bold text-amber-700 mb-1">Start at 35</p>
             <p className="font-caveat text-2xl font-bold text-amber-600">{fmt(compoundingComparison.late, true)}</p>
-            <p className="font-kalam text-[11px] text-amber-600">₹5K/mo × 25 yrs</p>
+            <p className="font-kalam text-[11px] text-amber-600">{fmt(5000, true)}/mo × 25 yrs</p>
           </div>
           <div className="text-center p-4 bg-purple-50 rounded-xl border border-purple-200">
             <p className="font-kalam text-xs font-bold text-purple-700 mb-1">Difference</p>
@@ -862,7 +950,8 @@ function SIPCalculator() {
 // TAB 6: EMI & DEBT
 // ══════════════════════════════════════════════════════════════
 function EMIDebtTab() {
-  const { emis } = useApp();
+  const { emis, currencyPreference } = useApp();
+  const fmt = useCallback((n: number, compact = false) => formatCurrency(n, currencyPreference, compact), [currencyPreference]);
   const [principal, setPrincipal] = useState(500000);
   const [interestRate, setInterestRate] = useState(8.5);
   const [tenure, setTenure] = useState(5);
@@ -896,7 +985,7 @@ function EMIDebtTab() {
   return (
     <div className="space-y-5">
       <JarvisNote title="JARVIS Debt Advisor" rotate={-0.3}>
-        {prepayment > 0 ? `Extra ₹${prepayment.toLocaleString()}/mo saves ${fmt(calc.savedInterest)} in interest and cuts ${Math.max(0, tenure * 12 - calc.actualMonths)} months!`
+        {prepayment > 0 ? `Extra ${fmt(prepayment)}/mo saves ${fmt(calc.savedInterest)} in interest and cuts ${Math.max(0, tenure * 12 - calc.actualMonths)} months!`
           : `Your EMI is ${fmt(calc.emi)}/mo. Try adding extra monthly payment to see interest savings.`}
       </JarvisNote>
 
@@ -933,10 +1022,10 @@ function EMIDebtTab() {
       <div className="bg-white border border-[#e8dac0] rounded-xl p-5">
         <SectionTitle icon={Calculator} title="EMI Calculator" />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Loan (₹)</label><Input type="number" value={principal} onChange={e => setPrincipal(+e.target.value)} className="journal-input" /></div>
-          <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Rate (%)</label><Input type="number" step="0.1" value={interestRate} onChange={e => setInterestRate(+e.target.value)} className="journal-input" /></div>
-          <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Years</label><Input type="number" value={tenure} onChange={e => setTenure(+e.target.value)} className="journal-input" /></div>
-          <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Extra/mo (₹)</label><Input type="number" value={prepayment} onChange={e => setPrepayment(+e.target.value)} className="journal-input" /></div>
+          <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Loan ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={principal} onChange={e => setPrincipal(+e.target.value)} className="journal-input bg-white" /></div>
+          <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Rate (%)</label><Input type="number" step="0.1" value={interestRate} onChange={e => setInterestRate(+e.target.value)} className="journal-input bg-white" /></div>
+          <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Years</label><Input type="number" value={tenure} onChange={e => setTenure(+e.target.value)} className="journal-input bg-white" /></div>
+          <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Extra/mo ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={prepayment} onChange={e => setPrepayment(+e.target.value)} className="journal-input bg-white" /></div>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
           <StatCard label="Monthly EMI" value={fmt(calc.emi)} icon={CreditCard} />
@@ -979,6 +1068,8 @@ function EMIDebtTab() {
 // TAB 7: FIRE CALCULATOR
 // ══════════════════════════════════════════════════════════════
 function FIRECalculator() {
+  const { currencyPreference } = useApp();
+  const fmt = useCallback((n: number, compact = false) => formatCurrency(n, currencyPreference, compact), [currencyPreference]);
   const [annualExpenses, setAnnualExpenses] = useState(600000);
   const [currentSavings, setCurrentSavings] = useState(500000);
   const [monthlySavings, setMonthlySavings] = useState(30000);
@@ -1018,12 +1109,12 @@ function FIRECalculator() {
       </JarvisNote>
 
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Annual Expenses (₹)</label><Input type="number" value={annualExpenses} onChange={e => setAnnualExpenses(+e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Current Savings (₹)</label><Input type="number" value={currentSavings} onChange={e => setCurrentSavings(+e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Monthly Save (₹)</label><Input type="number" value={monthlySavings} onChange={e => setMonthlySavings(+e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Return (%)</label><Input type="number" value={expectedReturn} onChange={e => setExpectedReturn(+e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Withdrawal (%)</label><Input type="number" step="0.5" value={withdrawalRate} onChange={e => setWithdrawalRate(+e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Current Age</label><Input type="number" value={currentAge} onChange={e => setCurrentAge(+e.target.value)} className="journal-input" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Annual Expenses ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={annualExpenses} onChange={e => setAnnualExpenses(+e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Current Savings ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={currentSavings} onChange={e => setCurrentSavings(+e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Monthly Save ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={monthlySavings} onChange={e => setMonthlySavings(+e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Return (%)</label><Input type="number" value={expectedReturn} onChange={e => setExpectedReturn(+e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Withdrawal (%)</label><Input type="number" step="0.5" value={withdrawalRate} onChange={e => setWithdrawalRate(+e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Current Age</label><Input type="number" value={currentAge} onChange={e => setCurrentAge(+e.target.value)} className="journal-input bg-white" /></div>
       </div>
 
       {/* FIRE Progress */}
@@ -1091,6 +1182,8 @@ function FIRECalculator() {
 // TAB 8: TAX PLANNER (Indian)
 // ══════════════════════════════════════════════════════════════
 function TaxPlanner() {
+  const { currencyPreference } = useApp();
+  const fmt = useCallback((n: number, compact = false) => formatCurrency(n, currencyPreference, compact), [currencyPreference]);
   const [annualIncome, setAnnualIncome] = useState(1200000);
   const [sec80c, setSec80c] = useState(50000);
   const [sec80d, setSec80d] = useState(10000);
@@ -1141,12 +1234,12 @@ function TaxPlanner() {
       </JarvisNote>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Annual Income (₹)</label><Input type="number" value={annualIncome} onChange={e => setAnnualIncome(+e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">80C (ELSS/PPF/LIC)</label><Input type="number" value={sec80c} onChange={e => setSec80c(+e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">80D (Health Insurance)</label><Input type="number" value={sec80d} onChange={e => setSec80d(+e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">HRA Exemption</label><Input type="number" value={hra} onChange={e => setHra(+e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">NPS (80CCD)</label><Input type="number" value={nps} onChange={e => setNps(+e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Home Loan Interest</label><Input type="number" value={homeLoanInterest} onChange={e => setHomeLoanInterest(+e.target.value)} className="journal-input" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Annual Income ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={annualIncome} onChange={e => setAnnualIncome(+e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">80C (ELSS/PPF/LIC) ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={sec80c} onChange={e => setSec80c(+e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">80D (Health Insurance) ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={sec80d} onChange={e => setSec80d(+e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">HRA Exemption ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={hra} onChange={e => setHra(+e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">NPS (80CCD) ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={nps} onChange={e => setNps(+e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Home Loan Interest ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={homeLoanInterest} onChange={e => setHomeLoanInterest(+e.target.value)} className="journal-input bg-white" /></div>
       </div>
 
       {/* Regime Comparison */}
@@ -1170,7 +1263,7 @@ function TaxPlanner() {
           </div>
           <div className="space-y-2 font-kalam text-sm">
             <div className="flex justify-between"><span className="text-slate-600">Gross Income</span><span className="font-bold">{fmt(annualIncome)}</span></div>
-            <div className="flex justify-between"><span className="text-slate-600">Standard Deduction</span><span className="font-bold text-green-600">-₹75,000</span></div>
+            <div className="flex justify-between"><span className="text-slate-600">Standard Deduction</span><span className="font-bold text-green-600">-{fmt(75000)}</span></div>
             <div className="flex justify-between"><span className="text-slate-600">Taxable</span><span className="font-bold">{fmt(newRegimeTax.taxable)}</span></div>
             <div className="border-t border-[#e8dac0] pt-2 flex justify-between"><span className="font-bold">Tax + Cess</span><span className="font-bold text-red-500">{fmt(newRegimeTax.total)}</span></div>
           </div>
@@ -1182,12 +1275,12 @@ function TaxPlanner() {
         <SectionTitle icon={Shield} title="Deduction Limits Used" />
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <div className="flex justify-between mb-1"><span className="font-kalam text-sm font-bold">Section 80C</span><span className="font-kalam text-xs text-slate-500">{fmt(Math.min(sec80c, 150000))} / ₹1,50,000</span></div>
+            <div className="flex justify-between mb-1"><span className="font-kalam text-sm font-bold">Section 80C</span><span className="font-kalam text-xs text-slate-500">{fmt(Math.min(sec80c, 150000))} / {fmt(150000)}</span></div>
             <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden"><div className="h-full bg-blue-400 rounded-full" style={{ width: `${sec80cUsed}%` }} /></div>
             <p className="font-kalam text-[11px] text-slate-500 mt-1">Remaining: {fmt(Math.max(0, 150000 - sec80c))}</p>
           </div>
           <div>
-            <div className="flex justify-between mb-1"><span className="font-kalam text-sm font-bold">Section 80D</span><span className="font-kalam text-xs text-slate-500">{fmt(Math.min(sec80d, 25000))} / ₹25,000</span></div>
+            <div className="flex justify-between mb-1"><span className="font-kalam text-sm font-bold">Section 80D</span><span className="font-kalam text-xs text-slate-500">{fmt(Math.min(sec80d, 25000))} / {fmt(25000)}</span></div>
             <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden"><div className="h-full bg-green-400 rounded-full" style={{ width: `${sec80dUsed}%` }} /></div>
             <p className="font-kalam text-[11px] text-slate-500 mt-1">Remaining: {fmt(Math.max(0, 25000 - sec80d))}</p>
           </div>
@@ -1201,7 +1294,8 @@ function TaxPlanner() {
 // TAB 9: CAN I BUY? (Enhanced)
 // ══════════════════════════════════════════════════════════════
 function AffordabilityCalculator() {
-  const { purchaseLogs, addPurchaseLog, deletePurchaseLog } = useApp();
+  const { purchaseLogs, addPurchaseLog, deletePurchaseLog, currencyPreference } = useApp();
+  const fmt = useCallback((n: number, compact = false) => formatCurrency(n, currencyPreference, compact), [currencyPreference]);
   const [monthlyIncome, setMonthlyIncome] = useState(50000);
   const [monthlyExpenses, setMonthlyExpenses] = useState(25000);
   const [itemCost, setItemCost] = useState(50000);
@@ -1237,10 +1331,10 @@ function AffordabilityCalculator() {
       </JarvisNote>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Income/mo (₹)</label><Input type="number" value={monthlyIncome} onChange={e => setMonthlyIncome(+e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Expenses/mo (₹)</label><Input type="number" value={monthlyExpenses} onChange={e => setMonthlyExpenses(+e.target.value)} className="journal-input" /></div>
-        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Item Cost (₹)</label><Input type="number" value={itemCost} onChange={e => setItemCost(+e.target.value)} className="journal-input" /></div>
-        <div className="flex items-end"><Button onClick={() => setShowEMI(!showEMI)} variant="outline" className="w-full journal-btn font-kalam">{showEMI ? 'Hide' : 'Show'} EMI Option</Button></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Income/mo ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={monthlyIncome} onChange={e => setMonthlyIncome(+e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Expenses/mo ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={monthlyExpenses} onChange={e => setMonthlyExpenses(+e.target.value)} className="journal-input bg-white" /></div>
+        <div><label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Item Cost ({getCurrencySymbol(currencyPreference)})</label><Input type="number" value={itemCost} onChange={e => setItemCost(+e.target.value)} className="journal-input bg-white" /></div>
+        <div className="flex items-end"><Button onClick={() => setShowEMI(!showEMI)} variant="outline" className="w-full journal-btn font-kalam bg-white hover:bg-slate-50">{showEMI ? 'Hide' : 'Show'} EMI Option</Button></div>
       </div>
 
       <div className="bg-white border border-[#e8dac0] rounded-xl p-4">

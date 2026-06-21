@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { 
   CheckSquare, Target, Sparkles, Wallet, Plus, TrendingUp,
-  Clock, Flame, Zap, Star, Heart, Users
+  Clock, Flame, Zap, Star, Heart, Users, Square
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { Button } from '@/components/ui/button';
@@ -18,10 +18,11 @@ import { lifeAreas } from '@/data/mockData';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import type { LifeArea, GoalCategory } from '@/types';
+import { formatCurrency, getCurrencySymbol, SUPPORTED_CURRENCIES, fetchExchangeRate } from '@/utils/currency';
 
 // Quick Add Task Modal
 function QuickAddTaskModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const { addTask } = useApp();
+  const { addTask, user } = useApp();
   const [title, setTitle] = useState('');
   const [lifeArea, setLifeArea] = useState<LifeArea>('career');
   const [impact, setImpact] = useState(5);
@@ -35,7 +36,7 @@ function QuickAddTaskModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
       return;
     }
     addTask({
-      userId: 'user-1',
+      userId: user?.id || 'user-1',
       title,
       description: '',
       lifeArea,
@@ -150,7 +151,7 @@ function QuickAddTaskModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 
 // Quick Add Goal Modal
 function QuickAddGoalModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const { addGoal } = useApp();
+  const { addGoal, user } = useApp();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<GoalCategory>('personal');
@@ -185,7 +186,7 @@ function QuickAddGoalModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
       : [];
 
     addGoal({
-      userId: 'user-1',
+      userId: user?.id || 'user-1',
       title,
       description,
       lifeArea,
@@ -324,7 +325,7 @@ function QuickAddGoalModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 
 // Quick Add Habit Modal
 function QuickAddHabitModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const { addHabit } = useApp();
+  const { addHabit, user } = useApp();
   const [title, setTitle] = useState('');
   const [lifeArea, setLifeArea] = useState<LifeArea>('health');
   const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'monthly'>('daily');
@@ -336,7 +337,7 @@ function QuickAddHabitModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
       return;
     }
     addHabit({
-      userId: 'user-1',
+      userId: user?.id || 'user-1',
       title,
       description: '',
       lifeArea,
@@ -426,34 +427,68 @@ function QuickAddHabitModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
 
 // Quick Add Transaction Modal
 function QuickAddTransactionModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const { addTransaction } = useApp();
+  const { addTransaction, user, currencyPreference } = useApp();
   const [type, setType] = useState<'income' | 'expense'>('expense');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
+  const [txCurrency, setTxCurrency] = useState(currencyPreference || 'INR');
+  const [isConverting, setIsConverting] = useState(false);
+
+  // Sync default currency
+  useEffect(() => {
+    if (isOpen && currencyPreference) {
+      setTxCurrency(currencyPreference);
+    }
+  }, [isOpen, currencyPreference]);
 
   const categories = type === 'income' 
     ? ['Salary', 'Freelance', 'Investment', 'Gift', 'Other']
     : ['Food', 'Rent', 'Transport', 'Shopping', 'Entertainment', 'Bills', 'Health', 'Other'];
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!amount || !category) {
       toast.error('Please fill in all fields');
       return;
     }
-    addTransaction({
-      userId: 'user-1',
-      type,
-      category,
-      amount: parseFloat(amount),
-      description,
-      date: new Date(),
-      tags: [],
-    });
-    setAmount('');
-    setCategory('');
-    setDescription('');
-    onClose();
+
+    setIsConverting(true);
+    try {
+      const parsedAmount = parseFloat(amount);
+      if (isNaN(parsedAmount)) {
+        toast.error('Invalid amount');
+        return;
+      }
+
+      let finalAmount = parsedAmount;
+      let extraNote = "";
+
+      if (txCurrency !== currencyPreference) {
+        const rate = await fetchExchangeRate(txCurrency, currencyPreference);
+        finalAmount = parsedAmount * rate;
+        extraNote = ` [Converted from ${getCurrencySymbol(txCurrency)}${parsedAmount.toFixed(2)} at rate of ${rate.toFixed(4)}]`;
+      }
+
+      addTransaction({
+        userId: user?.id || 'user-1',
+        type,
+        category,
+        amount: finalAmount,
+        description: (description || category) + extraNote,
+        date: new Date(),
+        tags: txCurrency !== currencyPreference ? ['converted', txCurrency] : [],
+      });
+
+      setAmount('');
+      setCategory('');
+      setDescription('');
+      onClose();
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Failed to convert currency');
+    } finally {
+      setIsConverting(false);
+    }
   };
 
   return (
@@ -467,33 +502,54 @@ function QuickAddTransactionModal({ isOpen, onClose }: { isOpen: boolean; onClos
             <Button 
               onClick={() => setType('income')}
               className={`flex-1 ${type === 'income' ? 'journal-btn-green' : 'journal-btn'}`}
+              disabled={isConverting}
             >
               Income
             </Button>
             <Button 
               onClick={() => setType('expense')}
               className={`flex-1 ${type === 'expense' ? 'journal-btn-red' : 'journal-btn'}`}
+              disabled={isConverting}
             >
               Expense
             </Button>
           </div>
 
           <div>
-            <label className="font-kalam text-sm mb-1 block">Amount ($)</label>
-            <Input 
-              type="number"
-              value={amount} 
-              onChange={(e) => setAmount(e.target.value)} 
-              placeholder="0.00"
-              className="journal-input"
-              autoFocus
-            />
+            <label className="font-kalam text-sm mb-1 block">Amount</label>
+            <div className="flex gap-2">
+              <Select value={txCurrency} onValueChange={setTxCurrency} disabled={isConverting}>
+                <SelectTrigger className="journal-input w-28 shrink-0 bg-white border-2 border-slate-400">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d]">
+                  {SUPPORTED_CURRENCIES.map(c => (
+                    <SelectItem key={c.code} value={c.code}>{c.code} ({c.symbol})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input 
+                type="number"
+                step="any"
+                value={amount} 
+                onChange={(e) => setAmount(e.target.value)} 
+                placeholder="0.00"
+                className="journal-input flex-1 bg-white border-2 border-slate-400 font-caveat text-xl"
+                disabled={isConverting}
+                autoFocus
+              />
+            </div>
+            {txCurrency !== currencyPreference && (
+              <p className="text-xs font-kalam text-slate-500 mt-1 italic animate-pulse">
+                Will be logged in {currencyPreference} using live rates.
+              </p>
+            )}
           </div>
 
           <div>
             <label className="font-kalam text-sm mb-1 block">Category</label>
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger className="journal-input">
+            <Select value={category} onValueChange={setCategory} disabled={isConverting}>
+              <SelectTrigger className="journal-input bg-white border-2 border-slate-400">
                 <SelectValue placeholder="Select category" />
               </SelectTrigger>
               <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d]">
@@ -510,16 +566,19 @@ function QuickAddTransactionModal({ isOpen, onClose }: { isOpen: boolean; onClos
               value={description} 
               onChange={(e) => setDescription(e.target.value)} 
               placeholder="What was this for?"
-              className="journal-input"
+              className="journal-input bg-white border-2 border-slate-400"
+              disabled={isConverting}
             />
           </div>
 
           <div className="flex gap-2 pt-2">
-            <Button onClick={handleSubmit} className="flex-1 journal-btn-primary">
-              <Plus className="w-4 h-4 mr-1" />
-              Add Transaction
+            <Button onClick={handleSubmit} className="flex-1 journal-btn-primary" disabled={isConverting}>
+              {isConverting ? "Converting..." : <>
+                <Plus className="w-4 h-4 mr-1" />
+                Add Transaction
+              </>}
             </Button>
-            <Button onClick={onClose} variant="outline" className="journal-btn">
+            <Button onClick={onClose} variant="outline" className="journal-btn border-2 border-slate-400" disabled={isConverting}>
               Cancel
             </Button>
           </div>
@@ -532,7 +591,8 @@ function QuickAddTransactionModal({ isOpen, onClose }: { isOpen: boolean; onClos
 export function DashboardPage() {
   const { 
     user, stats, getTodayTasks, goals, habits, getMonthlySummary,
-    projects, partners, journalEntries, isLoading
+    projects, partners, journalEntries, isLoading, completeTask,
+    currencyPreference
   } = useApp();
   
   const router = useRouter();
@@ -610,7 +670,7 @@ export function DashboardPage() {
           { label: "Today's Tasks", value: todayTasks.length, icon: CheckSquare, color: "text-[#5a9468]", bg: "bg-[#e8f0e9]" },
           { label: "Active Goals", value: stats.activeGoals, icon: Target, color: "text-[#d49191]", bg: "bg-[#f5e8e8]" },
           { label: "Habit Streaks", value: stats.activeStreaks, icon: Flame, color: "text-[#c97b7b]", bg: "bg-[#f9eaea]" },
-          { label: "Portfolio PnL", value: `${isProfit ? '+' : ''}${(stats.totalPnl / 1000).toFixed(1)}k`, icon: TrendingUp, color: isProfit ? "text-[#5a9468]" : "text-[#c97b7b]", bg: isProfit ? "bg-[#e8f0e9]" : "bg-[#f5e8e8]" },
+          { label: "Portfolio PnL", value: `${isProfit ? '+' : ''}${formatCurrency(stats.totalPnl, currencyPreference, true)}`, icon: TrendingUp, color: isProfit ? "text-[#5a9468]" : "text-[#c97b7b]", bg: isProfit ? "bg-[#e8f0e9]" : "bg-[#f5e8e8]" },
           { label: "Partner Network", value: partners.length, icon: Users, color: "text-[#7a9eb8]", bg: "bg-[#e8eef3]" }
         ].map((stat, i) => (
           <div key={i} className="bg-[#fdfbf7] p-5 rounded-xl border-2 border-[#e8dac0] shadow-[2px_2px_0px_#e8dac0] hover:-translate-y-1 transition-transform">
@@ -657,6 +717,19 @@ export function DashboardPage() {
                   <div key={task.id} className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
                     task.status === 'completed' ? 'bg-[#f9f7f4] border-[#e8dac0] opacity-60' : 'bg-white border-[#e8dac0] hover:border-[#8ab896] shadow-sm'
                   }`}>
+                    <button
+                      onClick={() => task.status !== 'completed' && completeTask(task.id)}
+                      disabled={task.status === 'completed'}
+                      className={`flex-shrink-0 transition-colors ${
+                        task.status === 'completed' ? 'text-[#5a9468] cursor-default' : 'text-[#8a8a8a] hover:text-[#5a9468]'
+                      }`}
+                    >
+                      {task.status === 'completed' ? (
+                        <CheckSquare className="w-5 h-5" />
+                      ) : (
+                        <Square className="w-5 h-5" />
+                      )}
+                    </button>
                     <div className="flex-1">
                       <p className={`font-kalam font-bold ${task.status === 'completed' ? 'line-through text-[#5a5a5a]' : 'text-[#2d2d2d]'}`}>
                          {task.title}
@@ -749,16 +822,16 @@ export function DashboardPage() {
             <div className="space-y-3">
               <div className="flex justify-between items-center bg-[#f9f7f4] p-3 rounded-lg border border-[#e8dac0]">
                 <span className="font-kalam text-sm text-[#5a5a5a]">Income</span>
-                <span className="font-caveat text-xl text-[#5a9468]">+${monthlySummary.income.toLocaleString()}</span>
+                <span className="font-caveat text-xl text-[#5a9468]">+{formatCurrency(monthlySummary.income, currencyPreference)}</span>
               </div>
               <div className="flex justify-between items-center bg-[#f9f7f4] p-3 rounded-lg border border-[#e8dac0]">
                 <span className="font-kalam text-sm text-[#5a5a5a]">Expenses</span>
-                <span className="font-caveat text-xl text-[#c97b7b]">-${monthlySummary.expenses.toLocaleString()}</span>
+                <span className="font-caveat text-xl text-[#c97b7b]">-{formatCurrency(monthlySummary.expenses, currencyPreference)}</span>
               </div>
               <div className="flex justify-between items-center bg-[#e8f0e9] p-3 rounded-lg border border-[#8ab896] mt-2">
                 <span className="font-kalam text-sm font-bold text-[#2d2d2d]">Net Savings</span>
                 <span className={`font-caveat text-2xl ${monthlySummary.savings >= 0 ? 'text-[#5a9468]' : 'text-[#c97b7b]'}`}>
-                  ${monthlySummary.savings.toLocaleString()}
+                  {formatCurrency(monthlySummary.savings, currencyPreference)}
                 </span>
               </div>
             </div>

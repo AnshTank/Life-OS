@@ -1,14 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 
 // GET /api/projects
 export async function GET(req: NextRequest) {
   try {
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
     const type = searchParams.get('type');
 
-    const where: any = { userId: 'user-1' }; // Hardcoded user for now
+    const where: any = { userId };
 
     if (status && status !== 'all') {
       where.status = status;
@@ -32,21 +39,32 @@ export async function GET(req: NextRequest) {
 // POST /api/projects
 export async function POST(req: NextRequest) {
   try {
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const body = await req.json();
     const {
       title, description, type, status, techStack,
       startDate, targetDate, completedDate,
       progress, hoursSpent, earnings, clientName,
-      repositoryUrl, demoUrl, notes, tasks
+      repositoryUrl, demoUrl, notes, tasks, slug
     } = body;
 
     if (!title || !title.trim()) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 });
     }
 
+    const finalSlug = slug || (title.toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)+/g, '') + '-' + Math.random().toString(36).substring(2, 7));
+
     const project = await prisma.project.create({
       data: {
-        userId: 'user-1',
+        userId,
         title: title.trim(),
         description: description?.trim() || '',
         type: type || 'personal',
@@ -63,6 +81,7 @@ export async function POST(req: NextRequest) {
         demoUrl: demoUrl || null,
         notes: notes || [],
         tasks: tasks || [],
+        slug: finalSlug,
       },
     });
 

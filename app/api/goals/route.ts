@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { GoalCategory, LifeArea } from '@/types';
-
-// Hardcode user for now (consistent with tasks/habits)
-const MOCK_USER_ID = 'user-1';
+import { auth } from '@/auth';
 
 export async function GET(req: NextRequest) {
   try {
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const { searchParams } = new URL(req.url);
     const lifeArea = searchParams.get('lifeArea') as LifeArea | 'all' | null;
     const category = searchParams.get('category') as GoalCategory | 'all' | null;
@@ -15,7 +19,7 @@ export async function GET(req: NextRequest) {
 
     // Build the query
     const where: any = {
-      userId: MOCK_USER_ID,
+      userId,
       OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }],
     };
 
@@ -51,6 +55,12 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const data = await req.json();
     const { 
       title, description, lifeArea, category, targetDate, 
@@ -80,7 +90,7 @@ export async function POST(req: NextRequest) {
     // Create Goal, potentially with nested Milestones
     const goal = await prisma.goal.create({
       data: {
-        userId: MOCK_USER_ID,
+        userId,
         title,
         description,
         lifeArea: lifeArea || 'career',

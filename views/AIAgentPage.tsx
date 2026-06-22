@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Bot, Send, Sparkles, TrendingUp, Target, 
   Wallet, CheckSquare, Lightbulb, Zap, User, 
-  Trash2, BarChart3, Mic, Phone
+  Trash2, BarChart3, Mic, Phone, MessageSquare, Plus
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { Card, CardContent } from '@/components/ui/card';
@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { getAiAvatarUrl } from '@/components/SettingChangeOverlay';
-// import { toast } from 'sonner';
+import { toast } from 'sonner';
 
 interface SuggestionChip {
   icon: React.ElementType;
@@ -184,9 +184,15 @@ function cleanTextForSpeech(text: string): string {
 }
 
 export function AIAgentPage() {
-  const { aiMessages, sendAIMessage, clearAIChat, stats, aiName, aiAvatar, aiVoicePreference, aiLanguage } = useApp();
+  const { 
+    aiMessages, sendAIMessage, clearAIChat, stats, aiName, aiAvatar, aiVoicePreference, aiLanguage,
+    conversations, activeConversationId, loadConversation, startNewConversation, deleteConversation, deleteConversationsByDateRange
+  } = useApp();
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [showHistory, setShowHistory] = useState(true);
+  const [historyStartDate, setHistoryStartDate] = useState('');
+  const [historyEndDate, setHistoryEndDate] = useState('');
   const [coordinates, setCoordinates] = useState<{ latitude?: number; longitude?: number }>({});
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [isCallModeActive, setIsCallModeActive] = useState(false);
@@ -567,6 +573,16 @@ export function AIAgentPage() {
             <Phone className="w-4 h-4 mr-1.5" />
             {isCallModeActive ? "End Call" : "Voice Call"}
           </Button>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className={`font-kalam font-bold hover:bg-slate-100 ${showHistory ? 'text-purple-600 bg-slate-100' : 'text-slate-500'}`}
+            onClick={() => setShowHistory(!showHistory)}
+            title="Toggle Chat History"
+          >
+            <MessageSquare className="w-4 h-4 mr-1.5" />
+            History
+          </Button>
           <Button variant="ghost" size="sm" onClick={clearAIChat}>
             <Trash2 className="w-4 h-4 mr-1" />
             Clear
@@ -579,10 +595,113 @@ export function AIAgentPage() {
       </div>
 
       {/* Chat Area */}
-      <Card className="flex-1 border-2 shadow-2xl overflow-hidden flex flex-col bg-white/70 backdrop-blur-xl animate-neon-pulse">
-        {isCallModeActive ? (
-          /* Holographic Glassmorphic Call Screen Overlay */
-          <div className="flex-1 flex flex-col items-center justify-between p-12 bg-white/10 backdrop-blur-2xl border-none relative overflow-hidden font-kalam select-none min-h-[400px]">
+      <Card className="flex-1 border-2 shadow-2xl overflow-hidden flex bg-white/70 backdrop-blur-xl animate-neon-pulse">
+        {showHistory && !isCallModeActive && (
+          <div className="w-80 border-r border-slate-200 bg-slate-50/50 flex flex-col p-4 shrink-0 font-kalam select-none">
+            <div className="flex items-center justify-between mb-4 border-b pb-2 shrink-0">
+              <h3 className="font-caveat text-2xl font-bold flex items-center gap-1.5">
+                <MessageSquare className="w-5 h-5 text-purple-600" /> Chat Logs (IST)
+              </h3>
+              <Button 
+                onClick={startNewConversation}
+                variant="ghost" 
+                size="icon" 
+                className="h-8 w-8 border rounded-lg bg-white shadow-sm"
+                title="New Chat"
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+            </div>
+
+            <div className="p-3 bg-[#fff0f0] border border-red-200 rounded-xl space-y-2 mb-4 shrink-0">
+              <p className="text-[10px] font-bold text-red-800 uppercase tracking-wider">Bulk Delete Logs</p>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="date" 
+                  value={historyStartDate}
+                  onChange={e => setHistoryStartDate(e.target.value)}
+                  className="flex-1 text-[10px] px-1.5 py-1 border border-slate-200 rounded bg-white text-slate-800 outline-none w-20"
+                />
+                <span className="text-[10px] text-slate-400">to</span>
+                <input 
+                  type="date" 
+                  value={historyEndDate}
+                  onChange={e => setHistoryEndDate(e.target.value)}
+                  className="flex-1 text-[10px] px-1.5 py-1 border border-slate-200 rounded bg-white text-slate-800 outline-none w-20"
+                />
+                <Button 
+                  onClick={async () => {
+                    if (!historyStartDate && !historyEndDate) {
+                      toast.error("Please select a date range first");
+                      return;
+                    }
+                    if (confirm("Delete conversations in this range? This cannot be undone.")) {
+                      await deleteConversationsByDateRange(historyStartDate, historyEndDate);
+                      setHistoryStartDate('');
+                      setHistoryEndDate('');
+                    }
+                  }}
+                  size="icon" 
+                  className="h-8 w-8 bg-red-500 hover:bg-red-600 text-white rounded-lg border border-red-700 shrink-0"
+                  title="Delete range"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 select-text">
+              {conversations.map(c => {
+                const date = new Date(c.updatedAt);
+                const dateStr = new Intl.DateTimeFormat('en-IN', {
+                  timeZone: 'Asia/Kolkata',
+                  dateStyle: 'medium',
+                  timeStyle: 'short'
+                }).format(date) + ' (IST)';
+
+                const isActive = activeConversationId === c.id;
+
+                return (
+                  <div 
+                    key={c.id}
+                    className={`p-2.5 border-2 rounded-xl flex items-center justify-between cursor-pointer transition-all ${
+                      isActive 
+                        ? 'bg-purple-50/50 border-purple-500 shadow-sm' 
+                        : 'bg-white border-[#2d2d2d]/10 hover:border-[#2d2d2d]/30'
+                    }`}
+                    onClick={() => loadConversation(c.id)}
+                  >
+                    <div className="min-w-0 flex-1 pr-2">
+                      <h4 className="font-bold text-slate-800 truncate text-xs">{c.title || 'Conversation'}</h4>
+                      <p className="text-[9px] text-slate-400 mt-0.5">{dateStr}</p>
+                    </div>
+                    <Button 
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (confirm("Delete this conversation?")) {
+                          await deleteConversation(c.id);
+                        }
+                      }}
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7 text-red-500 hover:bg-red-50 rounded-lg shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                );
+              })}
+              {conversations.length === 0 && (
+                <p className="text-xs text-slate-400 italic text-center py-8">No saved chat sessions</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="flex-grow flex flex-col min-w-0">
+          {isCallModeActive ? (
+            /* Holographic Glassmorphic Call Screen Overlay */
+            <div className="flex-1 flex flex-col items-center justify-between p-12 bg-white/10 backdrop-blur-2xl border-none relative overflow-hidden font-kalam select-none min-h-[400px]">
             {/* Animated floating background neon orbs */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-40">
               <motion.div
@@ -820,6 +939,20 @@ export function AIAgentPage() {
                     className="flex-1 h-12 rounded-xl bg-white/80 border-2 focus:border-purple-400"
                   />
                 )}
+                {isSpeaking && (
+                  <Button 
+                    onClick={() => {
+                      if (typeof window !== 'undefined' && window.speechSynthesis) {
+                        window.speechSynthesis.cancel();
+                      }
+                      setIsSpeaking(false);
+                    }}
+                    className="h-12 px-4 bg-red-500 hover:bg-red-600 text-white border-2 border-red-700 font-bold font-kalam text-xs transition-transform active:scale-95 shrink-0 animate-pulse rounded-xl animate-bounce"
+                    title="Stop Speaking"
+                  >
+                    Stop ⏹️
+                  </Button>
+                )}
                 <Button 
                   onClick={isVoiceActive ? stopVoiceRecording : startVoiceRecording}
                   className={`h-12 px-4 border-2 border-purple-200 ${isVoiceActive ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-slate-700 hover:bg-slate-50'} rounded-xl transition-all`}
@@ -838,6 +971,7 @@ export function AIAgentPage() {
             </div>
           </>
         )}
+        </div>
       </Card>
 
       {/* Quick Stats */}

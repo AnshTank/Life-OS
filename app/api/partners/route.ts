@@ -1,14 +1,21 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 
 export async function GET(req: Request) {
   try {
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
     const type = searchParams.get('type');
     const search = searchParams.get('search');
 
-    const where: any = {};
+    const where: any = { userId };
     if (status && status !== 'all') where.status = status;
     if (type && type !== 'all') where.partnerType = type;
     if (search) {
@@ -43,6 +50,12 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
     const body = await req.json();
     const { name, description, email, phone, website, avatar, company, role, address, tags, partnerType, status, priority, socialLinks } = body;
 
@@ -50,8 +63,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
+    // Check if the partner is a registered user
+    let linkedUserId: string | null = null;
+    if (email && email.trim()) {
+      const matchedUser = await prisma.user.findFirst({
+        where: { email: { equals: email.trim(), mode: 'insensitive' } }
+      });
+      if (matchedUser) {
+        linkedUserId = matchedUser.id;
+      }
+    }
+
     const partner = await prisma.partner.create({
       data: {
+        userId,
+        linkedUserId,
         name,
         description,
         email,

@@ -297,16 +297,68 @@ function TransactionForm({ onSubmit, onCancel }: { onSubmit: (t: Omit<Transactio
 // TAB 1: DASHBOARD — Financial Command Center
 // ══════════════════════════════════════════════════════════════
 function FinancialDashboard() {
-  const { investments, transactions, emis, sips, stats, subscriptions, savingsGoals, currencyPreference } = useApp();
+  const { investments, transactions, emis, sips, stats, subscriptions, savingsGoals, currencyPreference, cashSetting } = useApp();
   const fmt = useCallback((n: number, compact = false) => formatCurrency(n, currencyPreference, compact), [currencyPreference]);
   
-  const income = useMemo(() => transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0), [transactions]);
-  const expenses = useMemo(() => transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0), [transactions]);
-  const savings = Math.max(0, income - expenses);
+  const loggedIncome = useMemo(() => transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0), [transactions]);
+  const loggedExpenses = useMemo(() => transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0), [transactions]);
+  
+  const currentCash = Math.max(0, (cashSetting || 0) + loggedIncome - loggedExpenses);
   const totalDebt = emis.filter(e => e.status === 'active').reduce((s, e) => s + (e.emiAmount * e.remainingMonths), 0);
-  const netWorth = stats.portfolioValue + savings - totalDebt;
+  const netWorth = stats.portfolioValue + currentCash - totalDebt;
   const subTotal = subscriptions.filter(s => s.isActive).reduce((sum, s) => sum + (s.frequency === 'yearly' ? s.amount / 12 : s.amount), 0);
-  const burnRate = income > 0 ? ((expenses / income) * 100) : 0;
+  
+  // Calculate burn rate based on actual monthly stats
+  const burnRate = stats.monthlyIncome > 0 ? ((stats.monthlyExpenses / stats.monthlyIncome) * 100) : 0;
+
+  // AI coach states
+  const [aiInsights, setAiInsights] = useState<{ title: string; content: string; priority: 'high' | 'medium' | 'low' }[]>([]);
+  const [loadingInsights, setLoadingInsights] = useState(false);
+
+  const fetchAiInsights = useCallback(async () => {
+    setLoadingInsights(true);
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'generate-financial-insights',
+          metrics: {
+            currency: currencyPreference,
+            netWorth,
+            monthlyIncome: stats.monthlyIncome,
+            monthlyExpenses: stats.monthlyExpenses,
+            portfolioValue: stats.portfolioValue,
+            totalInvested: stats.totalInvested,
+            totalPnl: stats.totalPnl,
+            totalDebt,
+            savingsRate: stats.monthlyIncome > 0 ? Math.round(((stats.monthlyIncome - stats.monthlyExpenses) / stats.monthlyIncome) * 100) : 0,
+            emisCount: emis.filter(e => e.status === 'active').length,
+            goalsCount: savingsGoals.length,
+            investmentsCount: investments.length,
+            transactionsCount: transactions.length
+          }
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.insights) {
+          setAiInsights(data.insights);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load AI insights:", err);
+    } finally {
+      setLoadingInsights(false);
+    }
+  }, [currencyPreference, netWorth, stats, totalDebt, emis, savingsGoals, investments, transactions]);
+
+  // Load once when netWorth or stats change and insights are empty
+  useEffect(() => {
+    if (aiInsights.length === 0 && (netWorth > 0 || stats.monthlyIncome > 0 || investments.length > 0)) {
+      fetchAiInsights();
+    }
+  }, [fetchAiInsights, aiInsights.length, netWorth, stats.monthlyIncome, investments.length]);
 
   // Monthly trend for chart
   const monthlyData = useMemo(() => {
@@ -336,10 +388,72 @@ function FinancialDashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
         <StatCard label="Net Worth" value={fmt(netWorth, true)} icon={getCurrencyIcon(currencyPreference)} color="#2d2d2d" />
         <StatCard label="Portfolio" value={fmt(stats.portfolioValue, true)} icon={BarChart3} color={stats.totalPnl >= 0 ? '#22c55e' : '#ef4444'} sub={`${stats.totalPnl >= 0 ? '+' : ''}${stats.totalInvested > 0 ? ((stats.totalPnl / stats.totalInvested) * 100).toFixed(1) : '0'}%`} />
-        <StatCard label="Income" value={fmt(income, true)} color="#22c55e" icon={ArrowUpRight} />
-        <StatCard label="Expenses" value={fmt(expenses, true)} color="#ef4444" icon={ArrowDownRight} />
-        <StatCard label="Savings" value={fmt(savings, true)} color="#3b82f6" icon={PiggyBank} sub={income > 0 ? `${((savings / income) * 100).toFixed(0)}% rate` : ''} />
+        <StatCard label="Cash / Bank" value={fmt(currentCash, true)} color="#3b82f6" icon={Wallet} sub={`Base: ${fmt(cashSetting || 0)}`} />
+        <StatCard label="Income" value={fmt(stats.monthlyIncome, true)} color="#22c55e" icon={ArrowUpRight} />
+        <StatCard label="Expenses" value={fmt(stats.monthlyExpenses, true)} color="#ef4444" icon={ArrowDownRight} />
         <StatCard label="Total Debt" value={fmt(totalDebt, true)} color={totalDebt > 0 ? '#f59e0b' : '#22c55e'} icon={CreditCard} />
+      </div>
+
+      {/* AI Recommendations */}
+      <div className="bg-white border border-[#e8dac0] rounded-xl p-5 relative overflow-hidden">
+        <div className="flex items-center justify-between mb-4">
+          <SectionTitle icon={Sparkles} title="JARVIS AI Financial Coach" />
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={fetchAiInsights} 
+            disabled={loadingInsights}
+            className="font-kalam text-xs border-2 border-[#2d2d2d] bg-white hover:bg-slate-50 text-[#2d2d2d] h-8 flex items-center gap-1.5"
+          >
+            <Repeat className={`w-3.5 h-3.5 ${loadingInsights ? 'animate-spin' : ''}`} />
+            {aiInsights.length > 0 ? "Refresh Insights" : "Get Insights"}
+          </Button>
+        </div>
+
+        {loadingInsights ? (
+          <div className="py-8 text-center flex flex-col items-center justify-center gap-2">
+            <Sparkles className="w-8 h-8 text-amber-500 animate-pulse" />
+            <p className="font-kalam text-sm text-slate-500 animate-pulse">Jarvis is analyzing your portfolio, liabilities, and transactions...</p>
+          </div>
+        ) : aiInsights.length > 0 ? (
+          <div className="grid md:grid-cols-3 gap-4">
+            {aiInsights.map((insight, idx) => (
+              <div 
+                key={idx} 
+                className={`p-4 rounded-xl border-2 flex flex-col justify-between ${
+                  insight.priority === 'high' ? 'bg-red-50 border-red-200' :
+                  insight.priority === 'medium' ? 'bg-amber-50 border-amber-200' :
+                  'bg-blue-50 border-blue-200'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-kalam text-sm font-bold text-slate-800">{insight.title}</h4>
+                    <Badge className={
+                      insight.priority === 'high' ? 'bg-red-500 text-white font-kalam text-[10px]' :
+                      insight.priority === 'medium' ? 'bg-amber-500 text-white font-kalam text-[10px]' :
+                      'bg-blue-500 text-white font-kalam text-[10px]'
+                    }>
+                      {insight.priority.toUpperCase()}
+                    </Badge>
+                  </div>
+                  <p className="font-kalam text-xs text-slate-600 leading-relaxed">{insight.content}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="py-6 text-center bg-[#fefcf8] rounded-xl border border-dashed border-[#e8dac0] flex flex-col items-center gap-3">
+            <Lightbulb className="w-8 h-8 text-amber-400" />
+            <div className="max-w-md">
+              <p className="font-kalam text-sm text-[#2d2d2d] font-bold mb-1">Unlock Personalized Recommendations</p>
+              <p className="font-kalam text-xs text-slate-500">Let Jarvis run a comprehensive check on your budget, investments, and debt profile to give you custom financial guidance.</p>
+            </div>
+            <Button onClick={fetchAiInsights} className="journal-btn-primary h-8 px-4 text-xs font-kalam">
+              Analyze My Financials ✨
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Charts Row */}
@@ -365,7 +479,7 @@ function FinancialDashboard() {
         {/* Financial Health */}
         <div className="bg-white border border-[#e8dac0] rounded-xl p-5">
           <SectionTitle icon={Shield} title="Financial Health" />
-          <FinancialHealthScore income={income} expenses={expenses} savings={savings} investments={investments} />
+          <FinancialHealthScore income={stats.monthlyIncome} expenses={stats.monthlyExpenses} savings={stats.monthlyIncome - stats.monthlyExpenses} investments={investments} />
         </div>
       </div>
 
@@ -1294,15 +1408,64 @@ function TaxPlanner() {
 // TAB 9: CAN I BUY? (Enhanced)
 // ══════════════════════════════════════════════════════════════
 function AffordabilityCalculator() {
-  const { purchaseLogs, addPurchaseLog, deletePurchaseLog, currencyPreference } = useApp();
+  const { purchaseLogs, addPurchaseLog, deletePurchaseLog, user, transactions, stats, currencyPreference } = useApp();
   const fmt = useCallback((n: number, compact = false) => formatCurrency(n, currencyPreference, compact), [currencyPreference]);
-  const [monthlyIncome, setMonthlyIncome] = useState(50000);
-  const [monthlyExpenses, setMonthlyExpenses] = useState(25000);
+  
+  const activeIncome = useMemo(() => stats.monthlyIncome, [stats.monthlyIncome]);
+  const activeExpenses = useMemo(() => stats.monthlyExpenses, [stats.monthlyExpenses]);
+
+  const [monthlyIncome, setMonthlyIncome] = useState(stats.monthlyIncome || 50000);
+  const [monthlyExpenses, setMonthlyExpenses] = useState(stats.monthlyExpenses || 25000);
   const [itemCost, setItemCost] = useState(50000);
   const [savingsAllocation, setSavingsAllocation] = useState(50);
   const [showEMI, setShowEMI] = useState(false);
-  const [emiRate, setEmiRate] = useState(12);
+  const [emiRate, setEmiRate] = useState(0); // Default to 0 (No-Cost EMI) to simplify first use
   const [emiTenure, setEmiTenure] = useState(12);
+
+  // States for logging a new purchase
+  const [purchaseName, setPurchaseName] = useState('');
+  const [purchaseAmount, setPurchaseAmount] = useState('');
+  const [purchaseCategory, setPurchaseCategory] = useState('Electronics');
+  const [purchaseRating, setPurchaseRating] = useState(5);
+  const [purchaseNotes, setPurchaseNotes] = useState('');
+
+  // Prefill income and expenses when actual transactions/settings load
+  useEffect(() => {
+    if (activeIncome > 0) {
+      setMonthlyIncome(activeIncome);
+    }
+    if (activeExpenses > 0) {
+      setMonthlyExpenses(activeExpenses);
+    }
+  }, [activeIncome, activeExpenses]);
+
+  const handleLogPurchase = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!purchaseName || !purchaseAmount) {
+      toast.error('Please enter item name and cost');
+      return;
+    }
+    const cost = parseFloat(purchaseAmount);
+    if (isNaN(cost) || cost <= 0) {
+      toast.error('Please enter a valid cost');
+      return;
+    }
+    addPurchaseLog({
+      userId: user?.id || 'user-1',
+      name: purchaseName,
+      amount: cost,
+      category: purchaseCategory,
+      satisfactionRating: purchaseRating,
+      notes: purchaseNotes || '',
+      date: new Date()
+    });
+    setPurchaseName('');
+    setPurchaseAmount('');
+    setPurchaseCategory('Electronics');
+    setPurchaseRating(5);
+    setPurchaseNotes('');
+    toast.success('Purchase logged successfully!');
+  };
 
   const savings = monthlyIncome - monthlyExpenses;
   const allocated = savings * (savingsAllocation / 100);
@@ -1311,6 +1474,10 @@ function AffordabilityCalculator() {
 
   // EMI option
   const emiCalc = useMemo(() => {
+    if (emiRate === 0) {
+      const emi = itemCost / (emiTenure || 1);
+      return { emi: Math.round(emi), total: itemCost, interest: 0 };
+    }
     const mr = emiRate / 100 / 12;
     const emi = itemCost * mr * Math.pow(1 + mr, emiTenure) / (Math.pow(1 + mr, emiTenure) - 1);
     return { emi: Math.round(emi), total: Math.round(emi * emiTenure), interest: Math.round(emi * emiTenure - itemCost) };
@@ -1365,16 +1532,22 @@ function AffordabilityCalculator() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 bg-red-50 rounded-xl border border-red-200 text-center">
-              <p className="font-kalam text-xs font-bold text-red-700 uppercase mb-1">Buy with EMI</p>
+              <p className="font-kalam text-xs font-bold text-red-700 uppercase mb-1">
+                {emiRate === 0 ? "No-Cost EMI 🎁" : "Buy with EMI"}
+              </p>
               <p className="font-caveat text-2xl font-bold text-red-600">{fmt(emiCalc.total, true)}</p>
               <p className="font-kalam text-[11px] text-red-500">{fmt(emiCalc.emi)}/mo × {emiTenure} months</p>
-              <p className="font-kalam text-[11px] text-red-500">Interest: {fmt(emiCalc.interest)}</p>
+              <p className="font-kalam text-[11px] text-red-500">
+                {emiRate === 0 ? "Interest: ₹0 (No interest)" : `Interest: ${fmt(emiCalc.interest)}`}
+              </p>
             </div>
             <div className="p-4 bg-green-50 rounded-xl border border-green-200 text-center">
               <p className="font-kalam text-xs font-bold text-green-700 uppercase mb-1">Save & Buy</p>
               <p className="font-caveat text-2xl font-bold text-green-600">{fmt(itemCost, true)}</p>
               <p className="font-kalam text-[11px] text-green-500">{fmt(allocated)}/mo × {monthsToSave} months</p>
-              <p className="font-kalam text-[11px] text-green-500">You save: {fmt(emiCalc.interest)}</p>
+              <p className="font-kalam text-[11px] text-green-500">
+                {emiRate === 0 ? "Zero interest markup" : `You save: ${fmt(emiCalc.interest)} in interest`}
+              </p>
             </div>
           </div>
         </div>
@@ -1387,6 +1560,60 @@ function AffordabilityCalculator() {
           <p className="font-kalam text-sm font-bold text-purple-800">Opportunity Cost</p>
           <p className="font-kalam text-sm text-purple-700">If you invested {fmt(itemCost, true)} instead at 12% p.a., it would be worth <span className="font-bold">{fmt(opportunityCost, true)}</span> in 5 years.</p>
         </div>
+      </div>
+
+      {/* Log Purchase Form */}
+      <div className="bg-white border border-[#e8dac0] rounded-xl p-5">
+        <SectionTitle icon={Plus} title="Log a Purchase" />
+        <form onSubmit={handleLogPurchase} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Item Name</label>
+              <Input value={purchaseName} onChange={e => setPurchaseName(e.target.value)} placeholder="e.g., Headphones, Shoes..." className="journal-input bg-white" />
+            </div>
+            <div>
+              <label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Cost ({getCurrencySymbol(currencyPreference)})</label>
+              <Input type="number" value={purchaseAmount} onChange={e => setPurchaseAmount(e.target.value)} className="journal-input bg-white" />
+            </div>
+            <div>
+              <label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Category</label>
+              <Select value={purchaseCategory} onValueChange={setPurchaseCategory}>
+                <SelectTrigger className="journal-input bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d]">
+                  {['Electronics', 'Apparel', 'Fitness', 'Home', 'Entertainment', 'Education', 'Other'].map(c => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Satisfaction Rating (1-5)</label>
+              <div className="flex items-center gap-1.5 mt-2">
+                {[1, 2, 3, 4, 5].map(star => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setPurchaseRating(star)}
+                    className="hover:scale-110 transition-transform"
+                  >
+                    <Star className={`w-5 h-5 ${star <= purchaseRating ? 'fill-amber-500 text-amber-500' : 'text-slate-300'}`} />
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Notes (Optional)</label>
+              <Input value={purchaseNotes} onChange={e => setPurchaseNotes(e.target.value)} placeholder="Was it worth it?" className="journal-input bg-white" />
+            </div>
+          </div>
+
+          <Button type="submit" className="journal-btn-primary w-full md:w-auto"><Plus className="w-4 h-4 mr-1.5" /> Log Purchase</Button>
+        </form>
       </div>
 
       {/* Purchase History */}
@@ -1419,10 +1646,124 @@ function AffordabilityCalculator() {
 export function MoneyPage() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const { addInvestment } = useApp();
+  const [isTxDialogOpen, setIsTxDialogOpen] = useState(false);
+  
+  const { 
+    addInvestment, 
+    addTransaction, 
+    monthlyIncomeSetting, 
+    updateMonthlyIncomeSetting, 
+    resetFinancialData, 
+    currencyPreference, 
+    updateCurrencyPreference, 
+    user,
+    refreshStats,
+    cashSetting,
+    updateCashSetting
+  } = useApp();
 
   const handleAddInvestment = (data: Omit<Investment, 'id' | 'createdAt' | 'updatedAt'>) => {
     addInvestment(data); setIsAddDialogOpen(false); toast.success('Investment added!');
+  };
+
+  // Onboarding States
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [obIncome, setObIncome] = useState('');
+  const [obCash, setObCash] = useState('');
+  const [obPortfolio, setObPortfolio] = useState('');
+  const [obCurrency, setObCurrency] = useState('INR');
+  const [obCleanSlate, setObCleanSlate] = useState(true);
+  const [isResetting, setIsResetting] = useState(false);
+
+  // Settings States
+  const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
+  const [settingsIncome, setSettingsIncome] = useState('');
+  const [settingsCash, setSettingsCash] = useState('');
+  const [settingsCurrency, setSettingsCurrency] = useState('INR');
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const completed = localStorage.getItem('money_onboarding_completed') === 'true';
+      if (!completed) {
+        setShowOnboarding(true);
+      }
+    }
+  }, []);
+
+  const handleCompleteOnboarding = async () => {
+    setIsResetting(true);
+    try {
+      if (obCleanSlate) {
+        await resetFinancialData();
+      }
+      
+      const parsedIncome = parseFloat(obIncome);
+      updateMonthlyIncomeSetting(!isNaN(parsedIncome) ? parsedIncome : 0);
+
+      const parsedCash = parseFloat(obCash);
+      updateCashSetting(!isNaN(parsedCash) ? parsedCash : 0);
+      
+      updateCurrencyPreference(obCurrency);
+      
+      const parsedPortfolio = parseFloat(obPortfolio);
+      if (!isNaN(parsedPortfolio) && parsedPortfolio > 0) {
+        await addInvestment({
+          userId: user?.id || 'user-1',
+          name: "Starting Balance",
+          type: "fd",
+          quantity: 1,
+          investedAmount: parsedPortfolio,
+          currentValue: parsedPortfolio,
+          averagePrice: parsedPortfolio,
+          currentPrice: parsedPortfolio,
+          pnl: 0,
+          pnlPercent: 0,
+          symbol: 'STARTING_BAL',
+          sector: 'Cash',
+          notes: 'Starting portfolio balance set during onboarding'
+        });
+      }
+      
+      refreshStats();
+      localStorage.setItem('money_onboarding_completed', 'true');
+      setShowOnboarding(false);
+      toast.success("Welcome to your clean financial dashboard!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to complete onboarding");
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  const handleOpenSettings = () => {
+    setSettingsIncome(String(monthlyIncomeSetting || ''));
+    setSettingsCash(String(cashSetting || ''));
+    setSettingsCurrency(currencyPreference || 'INR');
+    setIsSettingsDialogOpen(true);
+  };
+
+  const handleSaveSettings = () => {
+    const parsedIncome = parseFloat(settingsIncome);
+    updateMonthlyIncomeSetting(!isNaN(parsedIncome) ? parsedIncome : 0);
+
+    const parsedCash = parseFloat(settingsCash);
+    updateCashSetting(!isNaN(parsedCash) ? parsedCash : 0);
+
+    updateCurrencyPreference(settingsCurrency);
+    refreshStats();
+    setIsSettingsDialogOpen(false);
+    toast.success("Settings updated successfully!");
+  };
+
+  const handleResetData = async () => {
+    if (confirm("Are you sure you want to delete all financial data? This will wipe your transactions, investments, SIPs, EMIs, and budgets, and cannot be undone!")) {
+      setIsResetting(true);
+      await resetFinancialData();
+      refreshStats();
+      setIsResetting(false);
+      setIsSettingsDialogOpen(false);
+    }
   };
 
   const tabs = [
@@ -1444,12 +1785,176 @@ export function MoneyPage() {
           <h1 className="text-3xl font-bold font-caveat text-[#2d2d2d] flex items-center gap-2"><Wallet className="w-7 h-7 text-[#d4a574]" /> Money & Wealth</h1>
           <p className="text-slate-500 font-kalam text-sm mt-0.5">Track, plan, and grow your finances</p>
         </div>
-        <Button className="journal-btn-primary" onClick={() => setIsAddDialogOpen(true)}><Plus className="w-4 h-4 mr-1.5" /> Add Investment</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" className="border-2 border-[#2d2d2d] bg-white hover:bg-slate-50 text-[#2d2d2d] h-9 w-9 p-0 flex items-center justify-center" onClick={handleOpenSettings} title="Settings">
+            <Settings2 className="w-4 h-4" />
+          </Button>
+          <Button variant="outline" className="font-kalam text-xs border-2 border-[#2d2d2d] bg-white hover:bg-slate-50 text-[#2d2d2d] h-9" onClick={() => setIsTxDialogOpen(true)}>
+            <Plus className="w-4 h-4 mr-1.5" /> Log Transaction
+          </Button>
+          <Button className="journal-btn-primary h-9" onClick={() => setIsAddDialogOpen(true)}>
+            <Plus className="w-4 h-4 mr-1.5" /> Add Investment
+          </Button>
+        </div>
       </div>
 
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogContent className="journal-modal max-w-lg"><DialogHeader><DialogTitle className="font-caveat text-2xl">Add Investment</DialogTitle></DialogHeader>
           <InvestmentForm onSubmit={handleAddInvestment} onCancel={() => setIsAddDialogOpen(false)} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isTxDialogOpen} onOpenChange={setIsTxDialogOpen}>
+        <DialogContent className="journal-modal max-w-md"><DialogHeader><DialogTitle className="font-caveat text-2xl">Log Transaction</DialogTitle></DialogHeader>
+          <TransactionForm onSubmit={t => { addTransaction(t); setIsTxDialogOpen(false); toast.success('Logged!'); }} onCancel={() => setIsTxDialogOpen(false)} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showOnboarding} onOpenChange={() => {}}>
+        <DialogContent className="journal-modal max-w-md [&>button]:hidden animate-paper-in" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="font-caveat text-3xl text-center flex items-center justify-center gap-2">
+              <Sparkles className="w-6 h-6 text-amber-500" /> Welcome to Money OS!
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <p className="font-kalam text-sm text-slate-600 text-center leading-relaxed">
+              Let's set up your personal financial profile to customize trackers, calculators, and targets.
+            </p>
+            
+            <div>
+              <label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Default Currency</label>
+              <Select value={obCurrency} onValueChange={setObCurrency} disabled={isResetting}>
+                <SelectTrigger className="journal-input bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d]">
+                  {SUPPORTED_CURRENCIES.map(c => (
+                    <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Monthly Base Income ({getCurrencySymbol(obCurrency)})</label>
+              <Input 
+                type="number" 
+                placeholder="e.g. 50000" 
+                value={obIncome} 
+                onChange={e => setObIncome(e.target.value)} 
+                className="journal-input bg-white"
+                disabled={isResetting}
+              />
+              <span className="text-[10px] font-kalam text-slate-400 mt-1 block">Used as baseline if no income transactions are logged for a month</span>
+            </div>
+
+            <div>
+              <label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Starting Cash / Bank Balance ({getCurrencySymbol(obCurrency)})</label>
+              <Input 
+                type="number" 
+                placeholder="e.g. 20000" 
+                value={obCash} 
+                onChange={e => setObCash(e.target.value)} 
+                className="journal-input bg-white"
+                disabled={isResetting}
+              />
+              <span className="text-[10px] font-kalam text-slate-400 mt-1 block">Your current liquid cash in hand or bank accounts</span>
+            </div>
+
+            <div>
+              <label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Starting Portfolio Balance ({getCurrencySymbol(obCurrency)})</label>
+              <Input 
+                type="number" 
+                placeholder="e.g. 100000" 
+                value={obPortfolio} 
+                onChange={e => setObPortfolio(e.target.value)} 
+                className="journal-input bg-white"
+                disabled={isResetting}
+              />
+              <span className="text-[10px] font-kalam text-slate-400 mt-1 block">Your current total investment portfolio value (optional)</span>
+            </div>
+
+            <div className="flex items-start gap-3 p-3 bg-amber-50 border-2 border-amber-200 rounded-xl mt-2">
+              <input 
+                type="checkbox" 
+                id="clean-slate-ob" 
+                checked={obCleanSlate} 
+                onChange={e => setObCleanSlate(e.target.checked)} 
+                className="journal-checkbox mt-0.5 flex-shrink-0"
+                disabled={isResetting}
+              />
+              <label htmlFor="clean-slate-ob" className="font-kalam text-xs text-amber-900 cursor-pointer select-none leading-relaxed">
+                <strong>Clean Slate Setup:</strong> Wipe and delete all prefilled financial mock/seed logs (recommended for first-time use).
+              </label>
+            </div>
+
+            <Button onClick={handleCompleteOnboarding} className="journal-btn-primary w-full mt-4" disabled={isResetting}>
+              {isResetting ? "Setting up..." : "Complete Setup & Launch 🚀"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isSettingsDialogOpen} onOpenChange={setIsSettingsDialogOpen}>
+        <DialogContent className="journal-modal max-w-md animate-paper-in">
+          <DialogHeader>
+            <DialogTitle className="font-caveat text-2xl flex items-center gap-2">
+              <Settings2 className="w-5 h-5 text-[#d4a574]" /> Financial Settings
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div>
+              <label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Default Currency</label>
+              <Select value={settingsCurrency} onValueChange={setSettingsCurrency} disabled={isResetting}>
+                <SelectTrigger className="journal-input bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d]">
+                  {SUPPORTED_CURRENCIES.map(c => (
+                    <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Monthly Base Income ({getCurrencySymbol(settingsCurrency)})</label>
+              <Input 
+                type="number" 
+                value={settingsIncome} 
+                onChange={e => setSettingsIncome(e.target.value)} 
+                className="journal-input bg-white"
+                disabled={isResetting}
+              />
+              <span className="text-[10px] font-kalam text-slate-400 mt-1 block">Baseline fallback income for calculators</span>
+            </div>
+
+            <div>
+              <label className="font-kalam text-xs font-bold mb-1 block text-slate-600">Cash / Bank Balance ({getCurrencySymbol(settingsCurrency)})</label>
+              <Input 
+                type="number" 
+                value={settingsCash} 
+                onChange={e => setSettingsCash(e.target.value)} 
+                className="journal-input bg-white"
+                disabled={isResetting}
+              />
+              <span className="text-[10px] font-kalam text-slate-400 mt-1 block">Current bank account savings / liquid cash balance</span>
+            </div>
+
+            <div className="pt-4 border-t border-[#f0ece4] flex flex-col gap-2">
+              <p className="font-kalam text-xs font-bold text-red-700">Danger Zone</p>
+              <Button type="button" onClick={handleResetData} className="journal-btn-red w-full flex items-center justify-center gap-2" disabled={isResetting}>
+                <Trash2 className="w-4 h-4" /> Reset All Financial Data
+              </Button>
+              <span className="text-[10px] font-kalam text-slate-400 text-center">Wipes all transactions, investments, SIPs, EMIs, and budgets</span>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button onClick={handleSaveSettings} className="journal-btn-primary flex-1" disabled={isResetting}>Save Changes</Button>
+              <Button onClick={() => setIsSettingsDialogOpen(false)} variant="outline" className="journal-btn flex-1" disabled={isResetting}>Cancel</Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

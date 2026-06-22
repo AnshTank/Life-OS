@@ -17,18 +17,47 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status') as string | 'all' | null;
     const search = searchParams.get('search');
 
-    // Build the query
+    // Find all partners representing this user to fetch shared goals
+    const userEmail = session.user.email;
+    const partnerOrFilters: any[] = [{ linkedUserId: userId }];
+    if (userEmail) {
+      partnerOrFilters.push({ email: { equals: userEmail, mode: 'insensitive' } });
+    }
+    const matchingPartners = await prisma.partner.findMany({
+      where: { OR: partnerOrFilters },
+      select: { id: true }
+    });
+    const partnerIds = matchingPartners.map(p => p.id);
+
+    const notDeleted = { OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] };
+    const ownershipOrSharing = [
+      { userId },
+      {
+        sharedWithPartner: true,
+        partnerId: { in: partnerIds }
+      }
+    ];
+
     const where: any = {
-      userId,
-      OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }],
+      AND: [
+        notDeleted,
+        { OR: ownershipOrSharing }
+      ]
     };
 
-    if (lifeArea && lifeArea !== 'all') where.lifeArea = lifeArea;
-    if (category && category !== 'all') where.category = category;
-    if (status && status !== 'all') where.status = status;
-    
+    if (lifeArea && lifeArea !== 'all') {
+      where.AND.push({ lifeArea });
+    }
+    if (category && category !== 'all') {
+      where.AND.push({ category });
+    }
+    if (status && status !== 'all') {
+      where.AND.push({ status });
+    }
     if (search) {
-      where.title = { contains: search, mode: 'insensitive' };
+      where.AND.push({
+        title: { contains: search, mode: 'insensitive' }
+      });
     }
 
     const goals = await prisma.goal.findMany({

@@ -4,14 +4,34 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApp } from '@/context/AppContext';
 
+const createSvgDataUri = (gradientStart: string, gradientEnd: string, emoji: string) => {
+  const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="${gradientStart}" />
+      <stop offset="100%" stop-color="${gradientEnd}" />
+    </linearGradient>
+  </defs>
+  <circle cx="50" cy="50" r="50" fill="url(#g)" />
+  <text x="50" y="67" font-size="52" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif">${emoji}</text>
+</svg>
+  `.trim();
+  
+  if (typeof window !== 'undefined') {
+    return `data:image/svg+xml;base64,${window.btoa(unescape(encodeURIComponent(svg)))}`;
+  }
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+};
+
 export const getAiAvatarUrl = (avatar: string) => {
   switch (avatar) {
     case 'sakura':
-      return 'https://api.dicebear.com/7.x/avataaars/svg?seed=Sakura&eyebrows=defaultNatural&mouth=smile&hair=longButNotTooLong&hairColor=pink';
+      return createSvgDataUri('#FECACA', '#FDE68A', '🌸');
     case 'ansh':
-      return 'https://api.dicebear.com/7.x/avataaars/svg?seed=Ansh&eyebrows=default&mouth=smile&hair=shortCurly&hairColor=black';
+      return createSvgDataUri('#BFDBFE', '#86EFAC', '🧑');
     case 'mary':
-      return 'https://api.dicebear.com/7.x/bottts/svg?seed=Mary&eyes=happy&mouth=smile&texture=grid';
+      return createSvgDataUri('#E9D5FF', '#FBCFE8', '🤖');
     case 'classic':
     default:
       return '/jarvis-character.png';

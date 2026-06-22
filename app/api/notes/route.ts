@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     const userId = (session.user as any).id;
 
     const body = await req.json();
-    const { title, content, folder, projectId, tags, backlinks, isFav } = body;
+    const { title, content, folder, projectId, tags, backlinks, isFav, section } = body;
 
     if (!title || !title.trim()) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 });
@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
         title: title.trim(),
         content: content || '',
         folder: folder || 'All',
+        section: section || null,
         projectId: (projectId && projectId !== 'none') ? projectId : null,
         tags: tags || [],
         backlinks: backlinks || [],
@@ -69,5 +70,40 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('Failed to create note:', error);
     return NextResponse.json({ error: 'Failed to create note' }, { status: 500 });
+  }
+}
+
+// PATCH /api/notes
+export async function PATCH(req: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session || !session.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = (session.user as any).id;
+
+    const body = await req.json();
+    const { folderFrom, folderTo, projectId } = body;
+
+    if (!folderFrom) {
+      return NextResponse.json({ error: 'folderFrom is required' }, { status: 400 });
+    }
+
+    const where: any = { userId, folder: folderFrom };
+    if (projectId && projectId !== 'none' && projectId !== 'null') {
+      where.projectId = projectId;
+    }
+
+    const result = await prisma.note.updateMany({
+      where,
+      data: {
+        folder: folderTo || 'Trash',
+      },
+    });
+
+    return NextResponse.json({ success: true, count: result.count });
+  } catch (error) {
+    console.error('Failed to bulk update notes:', error);
+    return NextResponse.json({ error: 'Failed to bulk update notes' }, { status: 500 });
   }
 }

@@ -27,15 +27,20 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
 } from '@/components/ui/select';
 import { PartnerDetailModal } from '@/components/partners/PartnerDetailModal';
+import { EcosystemReportModal } from '@/components/partners/EcosystemReportModal';
+import { CollaborationMapModal } from '@/components/partners/CollaborationMapModal';
 import type { PartnerStatus, PartnerPriority } from '@/types';
 
 export function PartnerPage() {
   const { partners, addPartner, updatePartner, deletePartner, goals, tasks, projects } = useApp();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isReportOpen, setIsReportOpen] = useState(false);
+  const [isMapOpen, setIsMapOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPartnerId, setSelectedPartnerId] = useState<string | null>(null);
   
-  // New Partner Form State
+  // Form & Editing States
+  const [editingPartnerId, setEditingPartnerId] = useState<string | null>(null);
   const [newPartner, setNewPartner] = useState({
     name: '',
     email: '',
@@ -58,13 +63,7 @@ export function PartnerPage() {
     p.tags.some(t => t.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const handleAddPartner = async () => {
-    if (!newPartner.name) {
-      toast.error('Partner name is required');
-      return;
-    }
-    await addPartner(newPartner);
-    setIsAddModalOpen(false);
+  const handleResetForm = () => {
     setNewPartner({
       name: '',
       email: '',
@@ -79,6 +78,49 @@ export function PartnerPage() {
       priority: 'medium',
       tags: []
     });
+    setEditingPartnerId(null);
+  };
+
+  const handleStartEdit = (p: any) => {
+    setNewPartner({
+      name: p.name,
+      email: p.email || '',
+      phone: p.phone || '',
+      website: p.website || '',
+      company: p.company || '',
+      role: p.role || '',
+      address: p.address || '',
+      description: p.description || '',
+      partnerType: p.partnerType || 'strategic',
+      status: p.status || 'active',
+      priority: p.priority || 'medium',
+      tags: p.tags || []
+    });
+    setEditingPartnerId(p.id);
+    setTimeout(() => {
+      setIsAddModalOpen(true);
+    }, 50);
+  };
+
+  const handleOpenChange = (open: boolean) => {
+    setIsAddModalOpen(open);
+    if (!open) {
+      handleResetForm();
+    }
+  };
+
+  const handleAddPartner = async () => {
+    if (!newPartner.name) {
+      toast.error('Partner name is required');
+      return;
+    }
+    if (editingPartnerId) {
+      await updatePartner(editingPartnerId, newPartner);
+    } else {
+      await addPartner(newPartner);
+    }
+    setIsAddModalOpen(false);
+    handleResetForm();
   };
 
   const addTag = () => {
@@ -116,18 +158,25 @@ export function PartnerPage() {
             />
           </div>
           
-          <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
+          <Dialog open={isAddModalOpen} onOpenChange={handleOpenChange}>
             <DialogTrigger asChild>
-              <Button className="journal-btn-primary gap-2 h-11 px-6">
+              <Button 
+                onClick={() => handleResetForm()}
+                className="journal-btn-primary gap-2 h-11 px-6"
+              >
                 <Plus className="w-5 h-5" />
                 Add Partner
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[500px] journal-modal">
               <DialogHeader>
-                <DialogTitle className="font-caveat text-3xl">New Partner Profile</DialogTitle>
+                <DialogTitle className="font-caveat text-3xl">
+                  {editingPartnerId ? "Edit Partner Profile" : "New Partner Profile"}
+                </DialogTitle>
                 <DialogDescription className="font-kalam">
-                  Create a new partner entry to track shared projects and goals.
+                  {editingPartnerId 
+                    ? "Modify partner details to update shared projects and goals." 
+                    : "Create a new partner entry to track shared projects and goals."}
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
@@ -221,6 +270,7 @@ export function PartnerPage() {
                         <SelectItem value="client">Client</SelectItem>
                         <SelectItem value="affiliate">Affiliate</SelectItem>
                         <SelectItem value="personal">Personal Sync</SelectItem>
+                        <SelectItem value="life-partner">Spouse / Life Partner</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -261,7 +311,7 @@ export function PartnerPage() {
               </div>
               <DialogFooter>
                 <Button onClick={handleAddPartner} className="journal-btn-primary w-full h-12">
-                  Create Partner Profile
+                  {editingPartnerId ? "Save Changes" : "Create Partner Profile"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -292,6 +342,7 @@ export function PartnerPage() {
                     p.partnerType === 'strategic' ? 'bg-purple-500' :
                     p.partnerType === 'vendor' ? 'bg-orange-500' :
                     p.partnerType === 'client' ? 'bg-blue-500' :
+                    p.partnerType === 'life-partner' ? 'bg-rose-500 animate-pulse' :
                     'bg-rose-400'
                   }`} />
                   <CardHeader className="flex flex-row items-start justify-between pb-2">
@@ -306,7 +357,7 @@ export function PartnerPage() {
                           {p.name}
                         </CardTitle>
                         <Badge variant="outline" className="text-[10px] font-kalam uppercase tracking-wider">
-                          {p.partnerType || 'Partner'}
+                          {p.partnerType === 'life-partner' ? 'Spouse / Life Partner' : p.partnerType || 'Partner'}
                         </Badge>
                       </div>
                     </div>
@@ -317,7 +368,13 @@ export function PartnerPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="journal-card">
-                        <DropdownMenuItem className="gap-2 font-kalam cursor-pointer">
+                        <DropdownMenuItem 
+                          className="gap-2 font-kalam cursor-pointer"
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            handleStartEdit(p);
+                          }}
+                        >
                           <Edit2 className="w-4 h-4" /> Edit Profile
                         </DropdownMenuItem>
                         <DropdownMenuItem 
@@ -411,10 +468,17 @@ export function PartnerPage() {
               Consider scheduling a strategic sync with your top-tier partners.
             </p>
             <div className="flex gap-4 mt-8">
-              <Button className="journal-btn-primary font-kalam h-12 px-8 rounded-xl">
+              <Button 
+                onClick={() => setIsReportOpen(true)}
+                className="journal-btn-primary font-kalam h-12 px-8 rounded-xl"
+              >
                 Generate Network Report
               </Button>
-              <Button variant="outline" className="journal-btn font-kalam h-12 px-8 rounded-xl">
+              <Button 
+                onClick={() => setIsMapOpen(true)}
+                variant="outline" 
+                className="journal-btn font-kalam h-12 px-8 rounded-xl"
+              >
                 View Collaboration Map
               </Button>
             </div>
@@ -450,6 +514,19 @@ export function PartnerPage() {
       <PartnerDetailModal 
         partnerId={selectedPartnerId} 
         onClose={() => setSelectedPartnerId(null)} 
+      />
+      <EcosystemReportModal 
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
+        partners={partners}
+      />
+      <CollaborationMapModal 
+        isOpen={isMapOpen}
+        onClose={() => setIsMapOpen(false)}
+        partners={partners}
+        projects={projects}
+        goals={goals}
+        tasks={tasks}
       />
     </div>
   );

@@ -24,22 +24,47 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50')));
     const skip = (page - 1) * limit;
 
-    // Build where clause — always exclude soft-deleted
-    // MongoDB needs OR for null: field is null OR field is not set
+    // Find all partners representing this user to fetch shared tasks
+    const userEmail = session.user.email;
+    const partnerOrFilters: any[] = [{ linkedUserId: userId }];
+    if (userEmail) {
+      partnerOrFilters.push({ email: { equals: userEmail, mode: 'insensitive' } });
+    }
+    const matchingPartners = await prisma.partner.findMany({
+      where: { OR: partnerOrFilters },
+      select: { id: true }
+    });
+    const partnerIds = matchingPartners.map(p => p.id);
+
     const notDeleted = { OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] };
-    const where: Record<string, any> = { userId, ...notDeleted };
+    const ownershipOrSharing = [
+      { userId },
+      {
+        sharedWithPartner: true,
+        partnerId: { in: partnerIds }
+      }
+    ];
+
+    const where: any = {
+      AND: [
+        notDeleted,
+        { OR: ownershipOrSharing }
+      ]
+    };
 
     if (status && status !== 'all') {
-      where.status = status;
+      where.AND.push({ status });
     }
     if (lifeArea && lifeArea !== 'all') {
-      where.lifeArea = lifeArea;
+      where.AND.push({ lifeArea });
     }
     if (search) {
-      where.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
-      ];
+      where.AND.push({
+        OR: [
+          { title: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } }
+        ]
+      });
     }
 
     // Build orderBy

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/auth';
 import { getCalendarEvents, createCalendarEvent, deleteCalendarEvent } from '@/lib/googleCalendar';
+import { generateAIResponse } from "@/lib/ai";
 
 export const dynamic = 'force-dynamic';
 
@@ -104,11 +105,6 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const { message, history = [], currentPage = 'dashboard', latitude, longitude, aiName = 'Potato', aiLanguage = 'Auto-detect', isCallMode = false } = body;
-
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: 'GEMINI_API_KEY is not configured.' }, { status: 500 });
-    }
 
     // 1. Fetch Geolocation Weather context if coordinates are available
     let weatherInfo = "";
@@ -218,8 +214,24 @@ Languages & Dialects:
 - You support code-switching and bilingual conversations. 
 - If the user writes in Hindi or Hinglish (Hindi written in Roman text, e.g. "aaj ka plan kya hai?"), reply in fluent Hinglish/Hindi.
 - If the user writes in Gujarati or Gujlish (Gujarati in Roman text, e.g. "aaje shu kam chhe?"), reply in fluent Gujlish/Gujarati.
-- You are future-ready for other languages like Japanese. If the user communicates in Japanese or another language, respond fluently in that language.
+- You are future-ready for other languages like Japanese. 
+-If the user asks about a language (translation, meaning, pronunciation, learning),explain it primarily in the user's current conversation language.
+  Example:
+  User: "What is thank you in Japanese?"
+  Assistant: "Japanese me thank you ko 'Arigatou' (ありがとう) kehte hain."
+  Do not automatically switch the entire conversation into Japanese unless the user explicitly asks to converse in Japanese.
 - Current language preference setting: ${aiLanguage}. If not "Auto-detect", prioritize this preference where natural.
+LANGUAGE SWITCHING RULE:
+  Maintain the language of the conversation.
+  If the conversation is in English, Hindi, Hinglish, Gujarati, or Gujlish,
+  continue replying in that language even when discussing foreign words.
+
+  Only switch completely to another language if the user explicitly says:
+
+  "Speak in Japanese"
+  "Reply only in Japanese"
+  "Let's converse in Japanese"
+
 
 Grounding & Behavior Rules:
 - Today's date/time is: ${currentDateTime}.
@@ -298,67 +310,34 @@ ${notesText}
 - Keep the interaction highly focused and responsive.`;
     }
 
-    // 6. Query Gemini API initially
-    let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents,
-        systemInstruction: {
-          parts: [{ text: finalSystemInstruction }]
-        },
-        generationConfig: {
-          temperature: isCallMode ? 0.15 : 0.4,
-          maxOutputTokens: isCallMode ? 60 : 800
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      console.error('Gemini API Error in /api/ai/chat:', response.status, err);
-      throw new Error(`Gemini API Error: ${response.status} - ${err}`);
-    }
-
-    let data = await response.json();
-    let reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
+    // 6. Generate AI Response
+let reply = await generateAIResponse(
+  contents,
+  finalSystemInstruction,
+  isCallMode
+);
 
     // 7. Check if Gemini requested an autonomous web search or calendar action
     const searchMatch = /\[WANTED_SEARCH:\s*([^\]]+)\]/.exec(reply);
     const calCreateMatch = /\[CALENDAR_CREATE:\s*([^|\]]+)(?:\|\s*([^|\]]*))?\|\s*([^|\]]+)\|\s*([^\]]+)\]/.exec(reply);
     const calDeleteMatch = /\[CALENDAR_DELETE:\s*([^\]]+)\]/.exec(reply);
-
     if (searchMatch) {
-      const searchQuery = searchMatch[1].trim();
-      console.log(`AI Companion requested web search: "${searchQuery}"`);
-      
-      const searchResults = await performWebSearch(searchQuery);
-      const updatedSystemInstruction = finalSystemInstruction + `\n\nWEB SEARCH RESULTS FOR "${searchQuery}":\n${searchResults}\n\nPlease analyze these search results and reply to the user's original query: "${message}".`;
-      
-      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents,
-          systemInstruction: {
-            parts: [{ text: updatedSystemInstruction }]
-          },
-          generationConfig: {
-            temperature: isCallMode ? 0.15 : 0.3,
-            maxOutputTokens: isCallMode ? 60 : 800
-          }
-        })
-      });
+  const searchQuery = searchMatch[1].trim();
+  console.log(`AI Companion requested web search: "${searchQuery}"`);
 
-      if (!response.ok) {
-        const err = await response.text();
-        console.error('Gemini API Search Re-query Error:', response.status, err);
-        throw new Error(`Gemini API Search Re-query Error: ${response.status} - ${err}`);
-      }
+  const searchResults = await performWebSearch(searchQuery);
 
-      data = await response.json();
-      reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I encountered an issue parsing the search results.";
-    } else if (calCreateMatch) {
+  const updatedSystemInstruction =
+    finalSystemInstruction +
+    `\n\nWEB SEARCH RESULTS FOR "${searchQuery}":\n${searchResults}\n\nPlease analyze these search results and reply to the user's original query: "${message}".`;
+
+ reply = await generateAIResponse(
+  contents,
+  updatedSystemInstruction,
+  isCallMode
+);
+}
+    else if (calCreateMatch) {
       const summary = calCreateMatch[1].trim();
       const description = (calCreateMatch[2] || '').trim();
       const startDT = calCreateMatch[3].trim();
@@ -377,27 +356,15 @@ ${notesText}
         ? `Successfully created Google Calendar event "${summary}" with ID: ${createdEvent.id}.`
         : `Failed to create Google Calendar event. The user might be unauthenticated or using a demo account.`;
         
-      const updatedSystemInstruction = finalSystemInstruction + `\n\nCALENDAR ACTION RESULT:\n${resultText}\n\nPlease formulate a conversational reply letting the user know the outcome of the scheduling request.`;
-      
-      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents,
-          systemInstruction: {
-            parts: [{ text: updatedSystemInstruction }]
-          },
-          generationConfig: {
-            temperature: isCallMode ? 0.15 : 0.3,
-            maxOutputTokens: isCallMode ? 60 : 800
-          }
-        })
-      });
-      
-      if (response.ok) {
-        data = await response.json();
-        reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || reply;
-      }
+      const updatedSystemInstruction =
+  finalSystemInstruction +
+  `\n\nCALENDAR ACTION RESULT:\n${resultText}\n\nPlease formulate a conversational reply letting the user know the outcome of the scheduling request.`;
+
+reply = await generateAIResponse(
+  contents,
+  updatedSystemInstruction,
+  isCallMode
+);
     } else if (calDeleteMatch) {
       const eventId = calDeleteMatch[1].trim();
       console.log(`AI Companion deleting calendar event: "${eventId}"`);
@@ -409,25 +376,11 @@ ${notesText}
         
       const updatedSystemInstruction = finalSystemInstruction + `\n\nCALENDAR ACTION RESULT:\n${resultText}\n\nPlease formulate a conversational reply letting the user know the outcome of the deletion request.`;
       
-      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents,
-          systemInstruction: {
-            parts: [{ text: updatedSystemInstruction }]
-          },
-          generationConfig: {
-            temperature: isCallMode ? 0.15 : 0.3,
-            maxOutputTokens: isCallMode ? 60 : 800
-          }
-        })
-      });
-      
-      if (response.ok) {
-        data = await response.json();
-        reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || reply;
-      }
+     reply = await generateAIResponse(
+  contents,
+  updatedSystemInstruction,
+  isCallMode
+);
     }
 
     return NextResponse.json({ response: reply });

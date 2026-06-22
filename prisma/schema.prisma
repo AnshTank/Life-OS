@@ -183,6 +183,8 @@ model AiCache {
 // Partner model (enhanced)
 model Partner {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @default("user-1")
+  linkedUserId String?
   name        String
   description String?
   email       String?
@@ -206,6 +208,7 @@ model Partner {
   tasks       Task[]         @relation("PartnerTasks")
   notes       PartnerNote[]  @relation("PartnerNotes")
 
+  @@index([userId])
   @@index([status])
   @@index([partnerType])
 }
@@ -405,6 +408,7 @@ model Note {
   title     String
   content   String
   folder    String   @default("All") // All, Meetings, Work, Personal, Trash
+  section   String?
   tags      String[]
   backlinks String[] // Titles or IDs of linked notes
   isFav     Boolean  @default(false)
@@ -496,4 +500,15 @@ model VisualDiff {
   createdAt       DateTime @default(now())
 
   @@index([userId, projectId])
+}
+
+model Conversation {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String
+  title     String
+  messages  Json     // Array of { role: String, content: String, timestamp: String }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }

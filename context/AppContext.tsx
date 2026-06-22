@@ -89,6 +89,11 @@ interface AppContextType {
   addEMI: (emi: Omit<EMI, 'id'>) => void;
   addSIP: (sip: Omit<SIP, 'id' | 'totalInvested' | 'projectedValue'>) => void;
   getMonthlySummary: () => { income: number; expenses: number; savings: number };
+  monthlyIncomeSetting: number;
+  updateMonthlyIncomeSetting: (value: number) => void;
+  resetFinancialData: () => Promise<void>;
+  cashSetting: number;
+  updateCashSetting: (value: number) => void;
   savingsGoals: SavingsGoal[];
   addSavingsGoal: (goal: Omit<SavingsGoal, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateSavingsGoal: (id: string, updates: Partial<SavingsGoal>) => void;
@@ -148,6 +153,12 @@ interface AppContextType {
   clearAIChat: () => void;
   getAIInsights: () => string;
   aiName: string;
+  conversations: any[];
+  activeConversationId: string | null;
+  loadConversation: (id: string) => Promise<void>;
+  startNewConversation: () => void;
+  deleteConversation: (id: string) => Promise<void>;
+  deleteConversationsByDateRange: (startDate: string, endDate: string) => Promise<void>;
   aiLanguage: string;
   aiVoicePreference: string;
   aiAvatar: string;
@@ -211,32 +222,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
-  const [investments, setInvestments] = useState<Investment[]>(mockInvestments);
-  const [transactions, setTransactions] = useState<Transaction[]>(mockTransactions);
-  const [budgets, setBudgets] = useState<Budget[]>(mockBudgets);
-  const [emis, setEmis] = useState<EMI[]>(mockEMIs);
-  const [sips, setSips] = useState<SIP[]>(mockSIPs);
-  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([
-    { id: 'sg-1', userId: 'user-1', name: 'MacBook Pro', targetAmount: 200000, currentSaved: 65000, deadline: new Date('2026-12-31'), priority: 'high', color: '#7a9eb8', icon: '💻', monthlySavingTarget: 15000, createdAt: new Date(), updatedAt: new Date() },
-    { id: 'sg-2', userId: 'user-1', name: 'Emergency Fund', targetAmount: 300000, currentSaved: 180000, priority: 'high', color: '#22c55e', icon: '🛡️', monthlySavingTarget: 20000, createdAt: new Date(), updatedAt: new Date() },
-    { id: 'sg-3', userId: 'user-1', name: 'Euro Trip', targetAmount: 500000, currentSaved: 120000, deadline: new Date('2027-06-01'), priority: 'medium', color: '#a855f7', icon: '✈️', monthlySavingTarget: 25000, createdAt: new Date(), updatedAt: new Date() },
-  ]);
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([
-    { id: 'sub-1', userId: 'user-1', name: 'Netflix', amount: 649, frequency: 'monthly', category: 'Entertainment', startDate: new Date('2024-01-01'), nextBillingDate: new Date('2026-05-15'), isActive: true },
-    { id: 'sub-2', userId: 'user-1', name: 'Spotify', amount: 119, frequency: 'monthly', category: 'Entertainment', startDate: new Date('2023-06-01'), nextBillingDate: new Date('2026-05-10'), isActive: true },
-    { id: 'sub-3', userId: 'user-1', name: 'ChatGPT Plus', amount: 1650, frequency: 'monthly', category: 'Productivity', startDate: new Date('2024-03-01'), nextBillingDate: new Date('2026-05-01'), isActive: true },
-    { id: 'sub-4', userId: 'user-1', name: 'iCloud 200GB', amount: 219, frequency: 'monthly', category: 'Cloud', startDate: new Date('2022-01-01'), nextBillingDate: new Date('2026-05-20'), isActive: true },
-    { id: 'sub-5', userId: 'user-1', name: 'GitHub Pro', amount: 300, frequency: 'monthly', category: 'Productivity', startDate: new Date('2024-08-01'), nextBillingDate: new Date('2026-05-08'), isActive: true },
-  ]);
-  const [purchaseLogs, setPurchaseLogs] = useState<PurchaseLog[]>([
-    { id: 'pl-1', userId: 'user-1', name: 'Sony WH-1000XM5', amount: 24990, date: new Date('2026-02-15'), category: 'Electronics', satisfactionRating: 5, notes: 'Best headphones ever' },
-    { id: 'pl-2', userId: 'user-1', name: 'Office Chair', amount: 15000, date: new Date('2026-01-10'), category: 'Furniture', satisfactionRating: 4 },
-  ]);
+  const [investments, setInvestments] = useState<Investment[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [emis, setEmis] = useState<EMI[]>([]);
+  const [sips, setSips] = useState<SIP[]>([]);
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [purchaseLogs, setPurchaseLogs] = useState<PurchaseLog[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [partner, setPartner] = useState<PartnerConnection | null>(mockPartner);
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
-  const [stats, setStats] = useState<DashboardStats>(mockDashboardStats);
+  const [stats, setStats] = useState<DashboardStats>({
+    totalTasks: 0,
+    completedTasks: 0,
+    pendingTasks: 0,
+    totalGoals: 0,
+    activeGoals: 0,
+    completedGoals: 0,
+    totalHabits: 0,
+    activeStreaks: 0,
+    portfolioValue: 0,
+    totalInvested: 0,
+    totalPnl: 0,
+    monthlyIncome: 0,
+    monthlyExpenses: 0,
+    lifeAreaProgress: [],
+  });
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   const [journalBooks, setJournalBooks] = useState<JournalBook[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
@@ -252,14 +265,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const fetchAllData = async () => {
       try {
-        const [journals, entries, projectsRes, tasksRes, goalsRes, habitsRes, partnersRes] = await Promise.all([
+        const [
+          journals, entries, projectsRes, tasksRes, goalsRes, habitsRes, partnersRes,
+          investmentsRes, transactionsRes, budgetsRes, emisRes, sipsRes, savingsGoalsRes,
+          subscriptionsRes, purchaseLogsRes, conversationsRes
+        ] = await Promise.all([
           fetch('/api/journals').then(res => res.json()),
           fetch('/api/entries').then(res => res.json()),
           fetch('/api/projects').then(res => res.json()),
           fetch('/api/tasks').then(res => res.json()),
           fetch('/api/goals').then(res => res.json()),
           fetch('/api/habits').then(res => res.json()),
-          fetch('/api/partners').then(res => res.json())
+          fetch('/api/partners').then(res => res.json()),
+          fetch('/api/investments').then(res => res.json()),
+          fetch('/api/transactions').then(res => res.json()),
+          fetch('/api/budgets').then(res => res.json()),
+          fetch('/api/emis').then(res => res.json()),
+          fetch('/api/sips').then(res => res.json()),
+          fetch('/api/savings-goals').then(res => res.json()),
+          fetch('/api/subscriptions').then(res => res.json()),
+          fetch('/api/purchase-logs').then(res => res.json()),
+          fetch('/api/ai/conversations').then(res => res.json()),
         ]);
 
         if (Array.isArray(journals)) setJournalBooks(journals);
@@ -275,6 +301,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setHabits(formattedHabits);
         }
         if (Array.isArray(partnersRes)) setPartners(partnersRes);
+        if (Array.isArray(investmentsRes)) setInvestments(investmentsRes);
+        if (Array.isArray(transactionsRes)) setTransactions(transactionsRes);
+        if (Array.isArray(budgetsRes)) setBudgets(budgetsRes);
+        if (Array.isArray(emisRes)) setEmis(emisRes);
+        if (Array.isArray(sipsRes)) setSips(sipsRes);
+        if (Array.isArray(savingsGoalsRes)) {
+          setSavingsGoals(savingsGoalsRes.map((g: any) => ({
+            ...g,
+            deadline: g.deadline ? new Date(g.deadline) : null,
+            createdAt: new Date(g.createdAt),
+            updatedAt: new Date(g.updatedAt)
+          })));
+        }
+        if (Array.isArray(subscriptionsRes)) {
+          setSubscriptions(subscriptionsRes.map((s: any) => ({
+            ...s,
+            startDate: new Date(s.startDate),
+            nextBillingDate: new Date(s.nextBillingDate)
+          })));
+        }
+        if (Array.isArray(purchaseLogsRes)) {
+          setPurchaseLogs(purchaseLogsRes.map((p: any) => ({
+            ...p,
+            date: new Date(p.date)
+          })));
+        }
+        if (Array.isArray(conversationsRes)) {
+          setConversations(conversationsRes);
+        }
       } catch (err) {
         console.error("Failed to fetch data:", err);
       } finally {
@@ -302,9 +357,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [aiAvatar, setAiAvatar] = useState<string>("classic");
   const [aiMessages, setAiMessages] = useState<{ role: 'user' | 'assistant'; content: string; timestamp: Date }[]>([]);
   const [settingChangeAnimation, setSettingChangeAnimation] = useState<any>(null);
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   
   // Currency preference state
   const [currencyPreference, setCurrencyPreference] = useState<string>("INR");
+  const [monthlyIncomeSetting, setMonthlyIncomeSetting] = useState<number>(0);
+  const [cashSetting, setCashSetting] = useState<number>(0);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -314,15 +373,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const savedVoice = localStorage.getItem("soul-sync-ai-voice-preference") || "Mei";
       const savedAvatar = localStorage.getItem("soul-sync-ai-avatar") || "classic";
       const savedCurrency = localStorage.getItem("soul-sync-currency") || "INR";
+      const savedIncome = localStorage.getItem("soul-sync-monthly-income-setting") || "0";
+      const savedCash = localStorage.getItem("soul-sync-cash-setting") || "0";
       
       setAiName(savedName);
       setAiLanguage(savedLanguage);
       setAiVoicePreference(savedVoice);
       setAiAvatar(savedAvatar);
       setCurrencyPreference(savedCurrency);
+      setMonthlyIncomeSetting(parseFloat(savedIncome));
+      setCashSetting(parseFloat(savedCash));
       setAiMessages([
         { role: 'assistant', content: `Hello! I'm ${savedName}, your Life OS companion. I can help you with tasks, goals, investments, and more. What would you like to know?`, timestamp: new Date() }
       ]);
+    }
+  }, []);
+
+  const updateMonthlyIncomeSetting = useCallback((value: number) => {
+    setMonthlyIncomeSetting(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("soul-sync-monthly-income-setting", String(value));
+    }
+  }, []);
+
+  const updateCashSetting = useCallback((value: number) => {
+    setCashSetting(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("soul-sync-cash-setting", String(value));
     }
   }, []);
 
@@ -785,82 +862,130 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [habits]);
 
   // Money Actions
-  const addInvestment = useCallback((investment: Omit<Investment, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const newInvestment: Investment = {
-      ...investment,
-      id: `inv-${Date.now()}`,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    setInvestments(prev => [...prev, newInvestment]);
-    toast.success('Investment added!');
+  const addInvestment = useCallback(async (investment: Omit<Investment, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      const res = await fetch('/api/investments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(investment),
+      });
+      const data = await res.json();
+      setInvestments(prev => [...prev, data]);
+      toast.success('Investment added!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to add investment');
+    }
   }, []);
 
-  const updateInvestment = useCallback((id: string, updates: Partial<Investment>) => {
-    setInvestments(prev => prev.map(inv => 
-      inv.id === id 
-        ? { ...inv, ...updates, updatedAt: new Date() }
-        : inv
-    ));
+  const updateInvestment = useCallback(async (id: string, updates: Partial<Investment>) => {
+    try {
+      setInvestments(prev => prev.map(inv => inv.id === id ? { ...inv, ...updates, updatedAt: new Date() } : inv));
+      await fetch(`/api/investments/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+    } catch (err) {
+      console.error(err);
+    }
   }, []);
 
-  const deleteInvestment = useCallback((id: string) => {
-    setInvestments(prev => prev.filter(inv => inv.id !== id));
-    toast.success('Investment removed');
+  const deleteInvestment = useCallback(async (id: string) => {
+    try {
+      setInvestments(prev => prev.filter(inv => inv.id !== id));
+      await fetch(`/api/investments/${id}`, { method: 'DELETE' });
+      toast.success('Investment removed');
+    } catch (err) {
+      console.error(err);
+    }
   }, []);
 
-  const addTransaction = useCallback((transaction: Omit<Transaction, 'id' | 'createdAt'>) => {
-    const newTransaction: Transaction = {
-      ...transaction,
-      id: `trans-${Date.now()}`,
-      createdAt: new Date(),
-    };
-    setTransactions(prev => [...prev, newTransaction]);
-    toast.success('Transaction recorded!');
+  const addTransaction = useCallback(async (transaction: Omit<Transaction, 'id' | 'createdAt'>) => {
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(transaction),
+      });
+      const data = await res.json();
+      setTransactions(prev => [...prev, data]);
+      toast.success('Transaction recorded!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to add transaction');
+    }
   }, []);
 
-  const deleteTransaction = useCallback((id: string) => {
-    setTransactions(prev => prev.filter(t => t.id !== id));
-    toast.success('Transaction deleted');
+  const deleteTransaction = useCallback(async (id: string) => {
+    try {
+      setTransactions(prev => prev.filter(t => t.id !== id));
+      await fetch(`/api/transactions/${id}`, { method: 'DELETE' });
+      toast.success('Transaction deleted');
+    } catch (err) {
+      console.error(err);
+    }
   }, []);
 
-  const addBudget = useCallback((budget: Omit<Budget, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const newBudget: Budget = {
-      ...budget,
-      id: `budget-${Date.now()}`,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    setBudgets(prev => [...prev, newBudget]);
-    toast.success('Budget set!');
+  const addBudget = useCallback(async (budget: Omit<Budget, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      const res = await fetch('/api/budgets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(budget),
+      });
+      const data = await res.json();
+      setBudgets(prev => [...prev, data]);
+      toast.success('Budget set!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to add budget');
+    }
   }, []);
 
-  const updateBudget = useCallback((id: string, updates: Partial<Budget>) => {
-    setBudgets(prev => prev.map(b => 
-      b.id === id 
-        ? { ...b, ...updates, updatedAt: new Date() }
-        : b
-    ));
+  const updateBudget = useCallback(async (id: string, updates: Partial<Budget>) => {
+    try {
+      setBudgets(prev => prev.map(b => b.id === id ? { ...b, ...updates, updatedAt: new Date() } : b));
+      await fetch(`/api/budgets/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+    } catch (err) {
+      console.error(err);
+    }
   }, []);
 
-  const addEMI = useCallback((emi: Omit<EMI, 'id'>) => {
-    const newEMI: EMI = {
-      ...emi,
-      id: `emi-${Date.now()}`,
-    };
-    setEmis(prev => [...prev, newEMI]);
-    toast.success('EMI added!');
+  const addEMI = useCallback(async (emi: Omit<EMI, 'id'>) => {
+    try {
+      const res = await fetch('/api/emis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(emi),
+      });
+      const data = await res.json();
+      setEmis(prev => [...prev, data]);
+      toast.success('EMI added!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to add EMI');
+    }
   }, []);
 
-  const addSIP = useCallback((sip: Omit<SIP, 'id' | 'totalInvested' | 'projectedValue'>) => {
-    const newSIP: SIP = {
-      ...sip,
-      id: `sip-${Date.now()}`,
-      totalInvested: 0,
-      projectedValue: sip.amount * sip.tenureYears * 12 * (1 + sip.expectedReturn / 100),
-    };
-    setSips(prev => [...prev, newSIP]);
-    toast.success('SIP started!');
+  const addSIP = useCallback(async (sip: Omit<SIP, 'id' | 'totalInvested' | 'projectedValue'>) => {
+    try {
+      const res = await fetch('/api/sips', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sip),
+      });
+      const data = await res.json();
+      setSips(prev => [...prev, data]);
+      toast.success('SIP started!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to add SIP');
+    }
   }, []);
 
   const getMonthlySummary = useCallback(() => {
@@ -870,43 +995,119 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [transactions]);
 
   // Savings Goals Actions
-  const addSavingsGoal = useCallback((goal: Omit<SavingsGoal, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const newGoal: SavingsGoal = { ...goal, id: `sg-${Date.now()}`, createdAt: new Date(), updatedAt: new Date() };
-    setSavingsGoals(prev => [...prev, newGoal]);
-    toast.success('Savings goal created!');
+  const addSavingsGoal = useCallback(async (goal: Omit<SavingsGoal, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      const res = await fetch('/api/savings-goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(goal),
+      });
+      const data = await res.json();
+      setSavingsGoals(prev => [...prev, data]);
+      toast.success('Savings goal created!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to add savings goal');
+    }
   }, []);
 
-  const updateSavingsGoal = useCallback((id: string, updates: Partial<SavingsGoal>) => {
-    setSavingsGoals(prev => prev.map(g => g.id === id ? { ...g, ...updates, updatedAt: new Date() } : g));
+  const updateSavingsGoal = useCallback(async (id: string, updates: Partial<SavingsGoal>) => {
+    try {
+      setSavingsGoals(prev => prev.map(g => g.id === id ? { ...g, ...updates, updatedAt: new Date() } : g));
+      await fetch(`/api/savings-goals/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+    } catch (err) {
+      console.error(err);
+    }
   }, []);
 
-  const deleteSavingsGoal = useCallback((id: string) => {
-    setSavingsGoals(prev => prev.filter(g => g.id !== id));
-    toast.success('Goal deleted');
+  const deleteSavingsGoal = useCallback(async (id: string) => {
+    try {
+      setSavingsGoals(prev => prev.filter(g => g.id !== id));
+      await fetch(`/api/savings-goals/${id}`, { method: 'DELETE' });
+      toast.success('Goal deleted');
+    } catch (err) {
+      console.error(err);
+    }
   }, []);
 
   // Subscription Actions
-  const addSubscription = useCallback((sub: Omit<Subscription, 'id'>) => {
-    const newSub: Subscription = { ...sub, id: `sub-${Date.now()}` };
-    setSubscriptions(prev => [...prev, newSub]);
-    toast.success('Subscription added!');
+  const addSubscription = useCallback(async (sub: Omit<Subscription, 'id'>) => {
+    try {
+      const res = await fetch('/api/subscriptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sub),
+      });
+      const data = await res.json();
+      setSubscriptions(prev => [...prev, data]);
+      toast.success('Subscription added!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to add subscription');
+    }
   }, []);
 
-  const deleteSubscription = useCallback((id: string) => {
-    setSubscriptions(prev => prev.filter(s => s.id !== id));
-    toast.success('Subscription removed');
+  const deleteSubscription = useCallback(async (id: string) => {
+    try {
+      setSubscriptions(prev => prev.filter(s => s.id !== id));
+      await fetch(`/api/subscriptions/${id}`, { method: 'DELETE' });
+      toast.success('Subscription removed');
+    } catch (err) {
+      console.error(err);
+    }
   }, []);
 
   // Purchase Log Actions
-  const addPurchaseLog = useCallback((log: Omit<PurchaseLog, 'id'>) => {
-    const newLog: PurchaseLog = { ...log, id: `pl-${Date.now()}` };
-    setPurchaseLogs(prev => [...prev, newLog]);
-    toast.success('Purchase logged!');
+  const addPurchaseLog = useCallback(async (log: Omit<PurchaseLog, 'id'>) => {
+    try {
+      const res = await fetch('/api/purchase-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(log),
+      });
+      const data = await res.json();
+      setPurchaseLogs(prev => [...prev, data]);
+      toast.success('Purchase logged!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to log purchase');
+    }
   }, []);
 
-  const deletePurchaseLog = useCallback((id: string) => {
-    setPurchaseLogs(prev => prev.filter(p => p.id !== id));
-    toast.success('Purchase removed');
+  const deletePurchaseLog = useCallback(async (id: string) => {
+    try {
+      setPurchaseLogs(prev => prev.filter(p => p.id !== id));
+      await fetch(`/api/purchase-logs/${id}`, { method: 'DELETE' });
+      toast.success('Purchase removed');
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
+  const resetFinancialData = useCallback(async () => {
+    try {
+      const res = await fetch('/api/money/reset', { method: 'POST' });
+      if (res.ok) {
+        setInvestments([]);
+        setTransactions([]);
+        setBudgets([]);
+        setEmis([]);
+        setSips([]);
+        setSavingsGoals([]);
+        setSubscriptions([]);
+        setPurchaseLogs([]);
+        toast.success('All financial data reset successfully!');
+      } else {
+        toast.error('Failed to reset financial data');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Error resetting financial data');
+    }
   }, []);
 
   // Project Actions
@@ -1011,7 +1212,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updatePartner = useCallback(async (id: string, updates: Partial<Partner>) => {
-    setPartners(prev => prev.map(p => p.id === id ? { ...p, ...updates, updatedAt: new Date() } : p));
+    let originalPartner: Partner | undefined;
+    setPartners(prev => {
+      originalPartner = prev.find(p => p.id === id);
+      return prev.map(p => p.id === id ? { ...p, ...updates, updatedAt: new Date() } : p);
+    });
+
     try {
       const res = await fetch(`/api/partners/${id}`, {
         method: 'PATCH',
@@ -1019,9 +1225,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify(updates),
       });
       if (!res.ok) throw new Error('Failed to update partner');
+      const updatedPartner = await res.json();
+      
+      // Update state with actual server-returned partner
+      setPartners(prev => prev.map(p => p.id === id ? updatedPartner : p));
       toast.success('Partner updated!');
     } catch (err) {
       console.error(err);
+      // Rollback to original partner on failure
+      if (originalPartner) {
+        setPartners(prev => prev.map(p => p.id === id ? originalPartner! : p));
+      }
       toast.error('Failed to sync partner update');
     }
   }, []);
@@ -1126,6 +1340,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const totalPnl = portfolioValue - totalInvested;
     const monthlySummary = getMonthlySummary();
     
+    const areas: LifeArea[] = ['health', 'career', 'finance', 'relationships', 'learning', 'fun', 'spirituality', 'environment', 'home', 'family'];
+    const lifeAreaProgress = areas.map(area => {
+      const areaTasks = tasks.filter(t => t.lifeArea === area);
+      const tasksTotal = areaTasks.length;
+      const tasksCompleted = areaTasks.filter(t => t.status === 'completed').length;
+      const progress = tasksTotal > 0 ? Math.round((tasksCompleted / tasksTotal) * 100) : 0;
+      return { area, progress, tasksCompleted, tasksTotal };
+    });
+
     setStats(prev => ({
       ...prev,
       totalTasks: tasks.length,
@@ -1139,15 +1362,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       portfolioValue,
       totalInvested,
       totalPnl,
-      monthlyIncome: monthlySummary.income,
+      monthlyIncome: monthlySummary.income || monthlyIncomeSetting,
       monthlyExpenses: monthlySummary.expenses,
+      lifeAreaProgress,
     }));
-  }, [tasks, goals, habits, investments, getMonthlySummary]);
+  }, [tasks, goals, habits, investments, getMonthlySummary, monthlyIncomeSetting]);
+
+  useEffect(() => {
+    refreshStats();
+  }, [tasks, goals, habits, investments, transactions, refreshStats]);
 
   // AI Actions
+  const startNewConversation = useCallback(() => {
+    setActiveConversationId(null);
+    setAiMessages([
+      { role: 'assistant', content: `Hello! I'm ${aiName}, your Life OS companion. I can help you with tasks, goals, investments, and more. What would you like to know?`, timestamp: new Date() }
+    ]);
+  }, [aiName]);
+
   const sendAIMessage = useCallback(async (message: string, clientContext?: { currentPage?: string; latitude?: number; longitude?: number; isCallMode?: boolean }) => {
     const newUserMessage = { role: 'user' as const, content: message, timestamp: new Date() };
-    setAiMessages(prev => [...prev, newUserMessage]);
+    const updatedMessages = [...aiMessages, newUserMessage];
+    setAiMessages(updatedMessages);
 
     try {
       const historyPayload = clientContext?.isCallMode 
@@ -1193,7 +1429,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       const cleanedReply = rawReply.replace(settingRegex, '').trim();
-      setAiMessages(prev => [...prev, { role: 'assistant' as const, content: cleanedReply, timestamp: new Date() }]);
+      const assistantMessage = { role: 'assistant' as const, content: cleanedReply, timestamp: new Date() };
+      const finalMessages = [...updatedMessages, assistantMessage];
+      setAiMessages(finalMessages);
+
+      // Save to DB (only in non-call mode to persist chat logs)
+      if (!clientContext?.isCallMode) {
+        if (!activeConversationId) {
+          const convRes = await fetch('/api/ai/conversations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: message.slice(0, 30) || 'New Chat',
+              messages: finalMessages.map(m => ({
+                role: m.role,
+                content: m.content,
+                timestamp: m.timestamp.toISOString()
+              }))
+            })
+          });
+          if (convRes.ok) {
+            const newConv = await convRes.json();
+            setActiveConversationId(newConv.id);
+            setConversations(prev => [newConv, ...prev]);
+          }
+        } else {
+          const convRes = await fetch(`/api/ai/conversations/${activeConversationId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: finalMessages.map(m => ({
+                role: m.role,
+                content: m.content,
+                timestamp: m.timestamp.toISOString()
+              }))
+            })
+          });
+          if (convRes.ok) {
+            const updatedConv = await convRes.json();
+            setConversations(prev => prev.map(c => c.id === activeConversationId ? updatedConv : c));
+          }
+        }
+      }
 
       // Process settings updates
       if (settingsToApply.length > 0) {
@@ -1253,15 +1530,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         timestamp: new Date() 
       }]);
     }
-  }, [aiMessages, aiName, aiLanguage, fontSettings, updateFontSettings, updateAISettings, triggerSettingChangeAnimation]);
+  }, [aiMessages, aiName, aiLanguage, fontSettings, updateFontSettings, updateAISettings, triggerSettingChangeAnimation, activeConversationId]);
 
   const clearAIChat = useCallback(() => {
-    setAiMessages([{ 
-      role: 'assistant', 
-      content: `Hello! I'm ${aiName}, your Life OS companion. How can I help you today?`, 
-      timestamp: new Date() 
-    }]);
-  }, [aiName]);
+    startNewConversation();
+  }, [startNewConversation]);
+
+  const loadConversation = useCallback(async (id: string) => {
+    const conv = conversations.find(c => c.id === id);
+    if (conv) {
+      setActiveConversationId(id);
+      const mappedMessages = (conv.messages as any[]).map((msg: any) => ({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+        timestamp: new Date(msg.timestamp)
+      }));
+      setAiMessages(mappedMessages);
+    }
+  }, [conversations]);
+
+  const deleteConversation = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/ai/conversations/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setConversations(prev => prev.filter(c => c.id !== id));
+        if (activeConversationId === id) {
+          startNewConversation();
+        }
+        toast.success("Conversation deleted successfully");
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to delete conversation");
+    }
+  }, [activeConversationId, startNewConversation]);
+
+  const deleteConversationsByDateRange = useCallback(async (startDate: string, endDate: string) => {
+    try {
+      const res = await fetch(`/api/ai/conversations?startDate=${startDate}&endDate=${endDate}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        const result = await res.json();
+        const listRes = await fetch('/api/ai/conversations');
+        if (listRes.ok) {
+          const data = await listRes.json();
+          setConversations(data);
+        }
+        startNewConversation();
+        toast.success(`Deleted ${result.count} conversations`);
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to delete conversations in date range");
+    }
+  }, [startNewConversation]);
 
   const getAIInsights = useCallback(() => {
     const pendingTasks = tasks.filter(t => t.status !== 'completed').length;
@@ -1278,6 +1603,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     goals, addGoal, updateGoal, deleteGoal, completeMilestone, addMilestone, getGoalsByArea, getGoalsByCategory, getGoalsByStatus,
     habits, addHabit, updateHabit, deleteHabit, completeHabit, getHabitStats,
     investments, transactions, budgets, emis, sips, addInvestment, updateInvestment, deleteInvestment, addTransaction, deleteTransaction, addBudget, updateBudget, addEMI, addSIP, getMonthlySummary, savingsGoals, addSavingsGoal, updateSavingsGoal, deleteSavingsGoal, subscriptions, addSubscription, deleteSubscription, purchaseLogs, addPurchaseLog, deletePurchaseLog,
+    monthlyIncomeSetting, updateMonthlyIncomeSetting, resetFinancialData,
+    cashSetting, updateCashSetting,
     projects, addProject, updateProject, deleteProject,
     partners, addPartner, updatePartner, deletePartner,
     partner, invitePartner, acceptPartner, shareGoalWithPartner, shareTaskWithPartner,
@@ -1287,6 +1614,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     aiName, aiLanguage, aiVoicePreference, aiAvatar, updateAISettings,
     settingChangeAnimation, triggerSettingChangeAnimation,
     currencyPreference, updateCurrencyPreference,
+    conversations, activeConversationId, loadConversation, startNewConversation, deleteConversation, deleteConversationsByDateRange,
     isLoading,
   }), [
     user, isAuthenticated, login, logout, updateUserProfile,
@@ -1296,6 +1624,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     goals, addGoal, updateGoal, deleteGoal, completeMilestone, addMilestone, getGoalsByArea, getGoalsByCategory, getGoalsByStatus,
     habits, addHabit, updateHabit, deleteHabit, completeHabit, getHabitStats,
     investments, transactions, budgets, emis, sips, addInvestment, updateInvestment, deleteInvestment, addTransaction, deleteTransaction, addBudget, updateBudget, addEMI, addSIP, getMonthlySummary, savingsGoals, addSavingsGoal, updateSavingsGoal, deleteSavingsGoal, subscriptions, addSubscription, deleteSubscription, purchaseLogs, addPurchaseLog, deletePurchaseLog,
+    monthlyIncomeSetting, updateMonthlyIncomeSetting, resetFinancialData,
+    cashSetting, updateCashSetting,
     projects, addProject, updateProject, deleteProject,
     partners, addPartner, updatePartner, deletePartner,
     partner, invitePartner, acceptPartner, shareGoalWithPartner, shareTaskWithPartner,
@@ -1305,6 +1635,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     aiName, aiLanguage, aiVoicePreference, aiAvatar, updateAISettings,
     settingChangeAnimation, triggerSettingChangeAnimation,
     currencyPreference, updateCurrencyPreference,
+    conversations, activeConversationId, loadConversation, startNewConversation, deleteConversation, deleteConversationsByDateRange,
     isLoading,
   ]);
 

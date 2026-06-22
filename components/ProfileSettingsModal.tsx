@@ -199,21 +199,19 @@ export function ProfileSettingsModal({ isOpen, onClose }: { isOpen: boolean; onC
     setIsSaving(true);
     setPhraseIdx(0);
 
+    // Save changes INSTANTLY to state and storage:
+    updateFontSettings({ family: localFont, size: localFontSize });
+    updateAISettings({ 
+      aiName: localName, 
+      aiLanguage: localLanguage, 
+      aiVoicePreference: localVoice, 
+      aiAvatar: localAvatar 
+    });
+    updateCurrencyPreference(localCurrency);
+
     // Rotate phrases slower (2.5 seconds per phrase, total 7.5 seconds)
     const t1 = setTimeout(() => setPhraseIdx(1), 2500);
     const t2 = setTimeout(() => setPhraseIdx(2), 5000);
-
-    // Apply setting changes at the end of the funny loading animation
-    setTimeout(() => {
-      updateFontSettings({ family: localFont, size: localFontSize });
-      updateAISettings({ 
-        aiName: localName, 
-        aiLanguage: localLanguage, 
-        aiVoicePreference: localVoice, 
-        aiAvatar: localAvatar 
-      });
-      updateCurrencyPreference(localCurrency);
-    }, 5500);
 
     setTimeout(() => {
       onClose();
@@ -459,10 +457,8 @@ export function ProfileSettingsModal({ isOpen, onClose }: { isOpen: boolean; onC
                           </SelectTrigger>
                           <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d]">
                             <SelectItem value="Mei" className="font-kalam">Mei (Female Multilingual)</SelectItem>
-                            <SelectItem value="Ansh" className="font-kalam">Mary (American Young Female)</SelectItem>
-                            <SelectItem value="Mary" className="font-kalam">
-                              Ansh (Young Male)
-                            </SelectItem>
+                            <SelectItem value="Ansh" className="font-kalam">Ansh (Young Male)</SelectItem>
+                            <SelectItem value="Mary" className="font-kalam">Mary (American Young Female)</SelectItem>
                           </SelectContent>
                         </Select>
 

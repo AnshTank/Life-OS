@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, X, Minimize2, Maximize2, Sparkles, MessageSquare, Zap, ArrowRight, Mic, Volume2, Phone } from 'lucide-react';
+import { Send, X, Minimize2, Maximize2, Sparkles, MessageSquare, Zap, ArrowRight, Mic, Volume2, Phone, Trash2, Plus } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { getAiAvatarUrl } from '@/components/SettingChangeOverlay';
+import { toast } from 'sonner';
 
 interface JarvisCompanionProps {
   currentPage: string;
@@ -123,10 +124,16 @@ function cleanTextForSpeech(text: string): string {
 }
 
 export function JarvisCompanion({ currentPage }: JarvisCompanionProps) {
-  const { aiMessages, sendAIMessage, stats, tasks, goals, habits, aiName, aiAvatar, aiVoicePreference, aiLanguage } = useApp();
+  const { 
+    aiMessages, sendAIMessage, stats, tasks, goals, habits, aiName, aiAvatar, aiVoicePreference, aiLanguage,
+    conversations, activeConversationId, loadConversation, startNewConversation, deleteConversation, deleteConversationsByDateRange
+  } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyStartDate, setHistoryStartDate] = useState('');
+  const [historyEndDate, setHistoryEndDate] = useState('');
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -767,6 +774,19 @@ export function JarvisCompanion({ currentPage }: JarvisCompanionProps) {
                       <Button 
                         variant="ghost" 
                         size="icon" 
+                        className={`h-8 w-8 hover:bg-[#e8e4dc] ${showHistory ? 'text-purple-600 bg-[#e8e4dc]' : 'text-[#5a5a5a]'}`}
+                        onClick={() => {
+                          setShowHistory(!showHistory);
+                          setIsFullScreen(false);
+                        }}
+                        title="Chat History Logs"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                      </Button>
+
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
                         className={`h-8 w-8 hover:bg-[#e8e4dc] ${speakOutput ? 'text-green-600' : 'text-[#5a5a5a]'}`}
                         onClick={() => {
                           setSpeakOutput(!speakOutput);
@@ -947,6 +967,120 @@ export function JarvisCompanion({ currentPage }: JarvisCompanionProps) {
                       </Button>
                     </div>
                   </div>
+                ) : showHistory ? (
+                  /* Conversation History Panel */
+                  <div className="flex-1 flex flex-col min-h-0 bg-[#fdfbf7] p-4 font-kalam select-text overflow-y-auto">
+                    <div className="flex items-center justify-between mb-4 border-b border-black/10 pb-2 shrink-0">
+                      <h3 className="font-caveat text-2xl font-bold flex items-center gap-2">
+                        <MessageSquare className="w-5 h-5 text-purple-600" /> Chat Logs (IST)
+                      </h3>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => setShowHistory(false)}
+                        className="text-slate-500 hover:text-slate-800 text-xs h-7 px-2 border"
+                      >
+                        ← Back
+                      </Button>
+                    </div>
+
+                    <Button 
+                      onClick={() => {
+                        startNewConversation();
+                        setShowHistory(false);
+                      }}
+                      className="w-full h-10 bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center gap-2 border-2 border-purple-800 shadow-sm font-bold text-sm mb-4 shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Start New Chat
+                    </Button>
+
+                    <div className="p-3 bg-[#fff0f0] border border-red-200 rounded-xl space-y-2 mb-4 shrink-0">
+                      <p className="text-[10px] font-bold text-red-800 uppercase tracking-wider">Bulk Delete Logs</p>
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="date" 
+                          value={historyStartDate}
+                          onChange={e => setHistoryStartDate(e.target.value)}
+                          className="flex-1 text-[10px] px-1.5 py-1 border border-slate-200 rounded bg-white text-slate-800 outline-none w-20"
+                        />
+                        <span className="text-[10px] text-slate-400">to</span>
+                        <input 
+                          type="date" 
+                          value={historyEndDate}
+                          onChange={e => setHistoryEndDate(e.target.value)}
+                          className="flex-1 text-[10px] px-1.5 py-1 border border-slate-200 rounded bg-white text-slate-800 outline-none w-20"
+                        />
+                        <Button 
+                          onClick={async () => {
+                            if (!historyStartDate && !historyEndDate) {
+                              toast.error("Please select a date range first");
+                              return;
+                            }
+                            if (confirm("Delete conversations in this range? This cannot be undone.")) {
+                              await deleteConversationsByDateRange(historyStartDate, historyEndDate);
+                              setHistoryStartDate('');
+                              setHistoryEndDate('');
+                            }
+                          }}
+                          size="icon" 
+                          className="h-8 w-8 bg-red-500 hover:bg-red-600 text-white rounded-lg border border-red-700 shrink-0"
+                          title="Delete range"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-0">
+                      {conversations.map(c => {
+                        const date = new Date(c.updatedAt);
+                        const dateStr = new Intl.DateTimeFormat('en-IN', {
+                          timeZone: 'Asia/Kolkata',
+                          dateStyle: 'medium',
+                          timeStyle: 'short'
+                        }).format(date) + ' (IST)';
+
+                        const isActive = activeConversationId === c.id;
+
+                        return (
+                          <div 
+                            key={c.id}
+                            className={`p-2.5 border-2 rounded-xl flex items-center justify-between cursor-pointer transition-all ${
+                              isActive 
+                                ? 'bg-purple-50/50 border-purple-500 shadow-sm' 
+                                : 'bg-white border-[#2d2d2d]/10 hover:border-[#2d2d2d]/30'
+                            }`}
+                            onClick={() => {
+                              loadConversation(c.id);
+                              setShowHistory(false);
+                            }}
+                          >
+                            <div className="min-w-0 flex-1 pr-2">
+                              <h4 className="font-bold text-slate-800 truncate text-xs">{c.title || 'Conversation'}</h4>
+                              <p className="text-[9px] text-slate-400 mt-0.5">{dateStr}</p>
+                            </div>
+                            <Button 
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (confirm("Delete this conversation?")) {
+                                  await deleteConversation(c.id);
+                                }
+                              }}
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-7 w-7 text-red-500 hover:bg-red-50 rounded-lg shrink-0"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                      {conversations.length === 0 && (
+                        <p className="text-xs text-slate-400 italic text-center py-8">No saved chat sessions</p>
+                      )}
+                    </div>
+                  </div>
                 ) : (
                   <div className="flex flex-1 min-h-0 overflow-hidden">
                   {/* Sidebar (Full Screen Only) */}
@@ -1055,6 +1189,20 @@ export function JarvisCompanion({ currentPage }: JarvisCompanionProps) {
                             className="flex-1 px-4 py-3 bg-white/90 border-2 border-[#5a5a5a] rounded-xl text-base handwritten focus:outline-none focus:border-[#2d2d2d] focus:ring-2 focus:ring-[#9b8ab8]/20 transition-all placeholder:text-[#8a8a8a]"
                             autoFocus
                           />
+                        )}
+                        {isSpeaking && (
+                          <Button 
+                            onClick={() => {
+                              if (typeof window !== 'undefined' && window.speechSynthesis) {
+                                window.speechSynthesis.cancel();
+                              }
+                              setIsSpeaking(false);
+                            }}
+                            className="h-[50px] px-3 bg-red-500 hover:bg-red-600 text-white rounded-xl border-2 border-red-700 font-bold font-kalam text-xs transition-transform active:scale-95 shrink-0 animate-pulse"
+                            title="Stop Speaking"
+                          >
+                            Stop ⏹️
+                          </Button>
                         )}
                         <Button 
                           onClick={isVoiceActive ? stopVoiceRecording : startVoiceRecording}

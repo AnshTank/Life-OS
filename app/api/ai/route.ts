@@ -17,6 +17,24 @@ export async function POST(req: NextRequest) {
     let imageParts: any[] = [];
 
     switch (action) {
+      case 'refine-layman-notes': {
+        const { noteContent } = body;
+        prompt = `
+          You are an expert notes organizer. You take messy, layman, stream-of-consciousness notes and refine them into a professional, highly readable format.
+          Organize them with beautiful markdown headings, bullet points, checklists, and key highlights.
+          Make the tone clear, professional, yet natural.
+          Here are the notes:
+          "${noteContent}"
+
+          Respond strictly in valid JSON format. Do not use markdown code block wrappers around the JSON itself.
+          Structure:
+          {
+            "refinedNotes": "Your beautifully refined markdown notes here"
+          }
+        `;
+        break;
+      }
+
       case 'refine-requirements': {
         const { laymanText } = body;
         prompt = `
@@ -160,6 +178,73 @@ export async function POST(req: NextRequest) {
         let text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         text = text?.replace(/```json/g, '').replace(/```/g, '').trim();
         return NextResponse.json(JSON.parse(text || '{}'));
+      }
+
+      case 'generate-financial-insights': {
+        const { metrics } = body;
+        prompt = `
+          You are an expert AI Financial Planner and Wealth Coach.
+          Analyze the following financial metrics for the user:
+          - Currency: ${metrics.currency}
+          - Net Worth: ${metrics.netWorth}
+          - Monthly Income Setting/Actual: ${metrics.monthlyIncome}
+          - Monthly Expenses: ${metrics.monthlyExpenses}
+          - Portfolio Value: ${metrics.portfolioValue}
+          - Total Invested Amount: ${metrics.totalInvested}
+          - Total P&L: ${metrics.totalPnl}
+          - Total Debt: ${metrics.totalDebt}
+          - Savings Rate: ${metrics.savingsRate}%
+          - Number of Active EMIs: ${metrics.emisCount}
+          - Number of Savings Goals: ${metrics.goalsCount}
+          - Number of Investments: ${metrics.investmentsCount}
+          - Number of Transactions Logged: ${metrics.transactionsCount}
+
+          Provide exactly 3 highly actionable, personalized financial recommendations/suggestions for the user.
+          Since the user is using this dashboard to manage their life and wealth, make the suggestions highly contextual:
+          - If their Net Worth, Portfolio, or transactions are 0, guide them on what concrete step to take first (e.g. logging a transaction, starting a savings goal, setting up a mock SIP, or using the settings panel to set their income baseline).
+          - If their debt is high relative to income, suggest debt paydown strategies.
+          - If their savings rate is high, suggest asset allocation or SIP setups.
+          - Keep the tone encouraging, warm, and clear (like a friendly companion).
+
+          Respond strictly in valid JSON format. Do not use markdown backticks or block wrappers around the JSON itself.
+          Structure:
+          {
+            "insights": [
+              {
+                "title": "Clear short suggestion title",
+                "content": "Actionable suggestion text...",
+                "priority": "high" | "medium" | "low"
+              }
+            ]
+          }
+        `;
+        break;
+      }
+
+      case 'generate-ecosystem-report': {
+        const { partners } = body;
+        prompt = `
+          You are an expert Organizational Coach and Collaboration Consultant.
+          Analyze the following statistics for the user's partner network (Ecosystem):
+          ${JSON.stringify(partners)}
+
+          Provide a detailed collaboration and ecosystem network analysis.
+          Specifically:
+          - Look at the number of active projects, goals, and tasks associated with each partner.
+          - If there are no partners or very few, suggest how to start building an ecosystem (e.g. adding a team member, spouse, client, or supplier).
+          - Provide positive feedback on strong partnerships.
+          - Call out gaps (e.g. if a partner has projects but no active tasks, or has high priority but low engagement).
+          
+          Respond strictly in valid JSON format. Do not use markdown backticks or block wrappers around the JSON itself.
+          Structure:
+          {
+            "summary": "1-2 sentence high-level summary of the ecosystem's strengths and areas for growth.",
+            "strengths": ["Strength 1...", "Strength 2..."],
+            "growthAreas": ["Gap or area for improvement 1...", "Gap or area for improvement 2..."],
+            "actionItems": ["Action 1...", "Action 2...", "Action 3..."]
+          }
+        `;
+        break;
       }
 
       default:

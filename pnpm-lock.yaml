@@ -122,6 +122,9 @@ importers:
       googleapis:
         specifier: ^171.4.0
         version: 171.4.0
+      groq-sdk:
+        specifier: ^1.2.1
+        version: 1.2.1
       gsap:
         specifier: ^3.14.2
         version: 3.15.0
@@ -2193,6 +2196,10 @@ packages:
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
+
+  groq-sdk@1.2.1:
+    resolution: {integrity: sha512-dsDSWJRJf+n2dPiCv7zU3IsJbrh7jfSPqi6vc1q0TTK1oUF6bn+wv4P2VFdynkHpuJ0TTJ57vlpT87judPgVPA==}
+    hasBin: true
 
   gsap@3.15.0:
     resolution: {integrity: sha512-dMW4CWBTUK1AEEDeZc1g4xpPGIrSf9fJF960qbTZmN/QwZIWY5wgliS6JWl9/25fpTGJrMRtSjGtOmPnfjZB+A==}
@@ -4921,6 +4928,8 @@ snapshots:
       - supports-color
 
   gopd@1.2.0: {}
+
+  groq-sdk@1.2.1: {}
 
   gsap@3.15.0: {}
 

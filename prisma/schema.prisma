@@ -401,19 +401,22 @@ model PurchaseLog {
 }
 
 model Note {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String
-  projectId String?  @db.ObjectId
-  project   Project? @relation("ProjectNotes", fields: [projectId], references: [id], onDelete: Cascade)
-  title     String
-  content   String
-  folder    String   @default("All") // All, Meetings, Work, Personal, Trash
-  section   String?
-  tags      String[]
-  backlinks String[] // Titles or IDs of linked notes
-  isFav     Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String
+  projectId       String?  @db.ObjectId
+  project         Project? @relation("ProjectNotes", fields: [projectId], references: [id], onDelete: Cascade)
+  title           String
+  content         String
+  originalContent String?
+  refinedContent  String?
+  canvasData      String?
+  folder          String   @default("All") // All, Meetings, Work, Personal, Trash
+  section         String?
+  tags            String[]
+  backlinks       String[] // Titles or IDs of linked notes
+  isFav           Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([userId, projectId])
   @@index([folder])

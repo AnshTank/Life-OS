@@ -530,6 +530,34 @@ export function ProfileSettingsModal({ isOpen, onClose }: { isOpen: boolean; onC
                     </div>
                   </div>
 
+                  <div className="border-t border-[#2d2d2d]/10 my-4" />
+
+                  {/* SECTION 5: UTILITY RADIAL ARC & KEYBOARD MACROS */}
+                  <div className="space-y-3 p-4 bg-amber-50/40 border border-amber-200 rounded-2xl">
+                    <h3 className="font-caveat text-xl font-bold text-[#2d2d2d] flex items-center gap-2 border-b border-[#2d2d2d]/10 pb-1">
+                      <Sparkles className="w-5 h-5 text-amber-500" />
+                      5. Utility Arc Menu & Keyboard Macros
+                    </h3>
+                    <p className="text-xs text-slate-600 font-kalam">
+                      Configure your bottom-right quarter radial menu, layer arcs, fast notes shortcut, and custom hotkey macros.
+                    </p>
+                    <Button
+                      onClick={() => {
+                        const btn = document.querySelector('button[title="Config"]') as HTMLButtonElement;
+                        if (btn) {
+                          btn.click();
+                        } else {
+                          // Dispatch custom trigger event
+                          window.dispatchEvent(new CustomEvent('open-utility-menu-settings'));
+                        }
+                        onClose();
+                      }}
+                      className="journal-btn-primary py-2 px-4 text-xs font-bold font-kalam rounded-xl flex items-center gap-1.5"
+                    >
+                      Configure Utility Radial Arc & Macros ⚙️
+                    </Button>
+                  </div>
+
                   {/* Typography Live Preview */}
                   <div className="p-4 bg-[#f9f7f4] rounded-xl border-2 border-slate-400 mt-4 select-none">
                     <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Typography Preview:</span>

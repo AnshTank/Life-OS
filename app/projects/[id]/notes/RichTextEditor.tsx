@@ -62,6 +62,7 @@ export interface RichTextEditorHandle {
   insertHighlight: (colorClass: string) => void;
   insertTable: () => void;
   insertPill: (text: string) => void;
+  insertSectionDivider: (style?: string) => void;
   getEl: () => HTMLDivElement | null;
   tableAddRow: (before: boolean) => void;
   tableAddColumn: (before: boolean) => void;
@@ -77,6 +78,7 @@ interface RichTextEditorProps {
   placeholder?: string;
   fontClass?: string;
   fontSize?: number;
+  onImagePreview?: (data: { src: string; caption: string; cardId: string }) => void;
   onSelectionFormatsChange?: (formats: {
     bold: boolean;
     italic: boolean;
@@ -89,7 +91,7 @@ interface RichTextEditorProps {
 const LIST_ITEM_TAG = 'LI';
 
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(
-  ({ html, onChange, placeholder, fontClass, fontSize = 16, onSelectionFormatsChange }, ref) => {
+  ({ html, onChange, placeholder, fontClass, fontSize = 16, onImagePreview, onSelectionFormatsChange }, ref) => {
     const elRef = useRef<HTMLDivElement>(null);
     const lastExternalHtml = useRef<string | null>(null);
     const isComposing = useRef(false);
@@ -140,6 +142,23 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         
         const pillHtml = `<span class="rte-pill" style="background-color: ${color.bg}; color: ${color.text}; border: 1px solid ${color.border}; padding: 2px 8px; border-radius: 9999px; font-size: 0.8em; font-weight: bold; margin-left: 6px; display: inline-block;" contenteditable="false">${text}</span>&nbsp;`;
         document.execCommand('insertHTML', false, pillHtml);
+        emitChange();
+      },
+      insertSectionDivider: (styleType = 'wavy') => {
+        elRef.current?.focus();
+        let hrHtml = '';
+        if (styleType === 'wavy') {
+          hrHtml = '<div class="rte-divider-container" contenteditable="false" style="margin: 20px 0; text-align: center;"><hr style="border: none; height: 10px; background: repeating-linear-gradient(45deg, #2d2d2d, #2d2d2d 4px, transparent 4px, transparent 8px); opacity: 0.7; border-radius: 4px;" /></div>';
+        } else if (styleType === 'gradient') {
+          hrHtml = '<div class="rte-divider-container" contenteditable="false" style="margin: 20px 0;"><hr style="border: none; height: 4px; background: linear-gradient(90deg, #f59e0b, #ec4899, #3b82f6, #10b981); border-radius: 4px;" /></div>';
+        } else if (styleType === 'vintage') {
+          hrHtml = '<div class="rte-divider-container" contenteditable="false" style="margin: 20px 0; text-align: center;"><hr style="border: none; border-top: 2px double #2d2d2d; border-bottom: 1px solid #2d2d2d; height: 5px;" /></div>';
+        } else if (styleType === 'stitched') {
+          hrHtml = '<div class="rte-divider-container" contenteditable="false" style="margin: 20px 0;"><hr style="border: none; border-top: 3px dotted #b45309;" /></div>';
+        } else {
+          hrHtml = '<div class="rte-divider-container" contenteditable="false" style="margin: 20px 0;"><hr style="border: none; border-top: 3px dashed #2d2d2d;" /></div>';
+        }
+        document.execCommand('insertHTML', false, hrHtml);
         emitChange();
       },
       getEl: () => elRef.current,
@@ -488,9 +507,10 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
                 compressImage(rawSrc, 800, 800, (compressedSrc) => {
                   const cardId = 'img-card-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
                   const imageCardHtml = `
-                    <div id="${cardId}" class="rte-image-card" contenteditable="false" draggable="true" style="display: inline-block; vertical-align: top; margin: 10px; border: 2px solid #2d2d2d; box-shadow: 3px 3px 0px rgba(45,45,45,1); border-radius: 8px; background: #fff; width: 220px; padding: 6px; box-sizing: border-box; position: relative;">
-                      <div class="rte-image-wrapper" style="position: relative; width: 100%; height: 160px; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 4px; display: block;">
-                        <img src="${compressedSrc}" style="width: 100%; height: 100%; object-fit: cover; pointer-events: none;" />
+                    <div id="${cardId}" class="rte-image-card" contenteditable="false" draggable="true" style="display: inline-block; vertical-align: top; margin: 10px; border: 2px solid #2d2d2d; box-shadow: 3px 3px 0px rgba(45,45,45,1); border-radius: 8px; background: #fff; width: 260px; max-width: 100%; padding: 6px; box-sizing: border-box; position: relative;">
+                      <div class="rte-image-wrapper" style="position: relative; width: 100%; height: auto; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 4px; display: block; background: #f8fafc; cursor: pointer;">
+                        <img src="${compressedSrc}" class="rte-image-img" style="width: 100%; height: auto; max-height: 380px; object-fit: contain; display: block; border-radius: 4px;" title="Click to view & edit notes" />
+                        <div class="rte-image-preview-badge" style="position: absolute; top: 4px; left: 4px; background: rgba(45,45,45,0.75); color: #fff; font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px; backdrop-filter: blur(2px); pointer-events: none; display: flex; align-items: center; gap: 4px;">🔍 Preview</div>
                         <div class="rte-resize-handle" style="position: absolute; bottom: 2px; right: 2px; width: 10px; height: 10px; cursor: se-resize; background: #2d2d2d; border: 1px solid #fff; border-radius: 2px; z-index: 20;"></div>
                       </div>
                       <button class="rte-image-delete" style="position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; background: #ef4444; color: #fff; border: 1.5px solid #2d2d2d; font-size: 11px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; z-index: 20; box-shadow: 1px 1px 0px #2d2d2d;">×</button>
@@ -522,17 +542,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         const startX = e.clientX;
         const startY = e.clientY;
         const startWidth = wrapper.offsetWidth;
-        const startHeight = wrapper.offsetHeight;
 
         const handleMouseMove = (moveEvent: MouseEvent) => {
           const deltaX = moveEvent.clientX - startX;
-          const deltaY = moveEvent.clientY - startY;
-
           const newWidth = Math.max(120, Math.min(800, startWidth + deltaX));
-          const newHeight = Math.max(80, Math.min(600, startHeight + deltaY));
-
           wrapper.style.width = newWidth + 'px';
-          wrapper.style.height = newHeight + 'px';
           card.style.width = newWidth + 'px';
         };
 
@@ -558,6 +572,20 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           emitChange();
         }
         return;
+      }
+      if (target.tagName === 'IMG' || target.classList.contains('rte-image-img') || target.classList.contains('rte-image-preview-badge') || (target.classList.contains('rte-image-wrapper') && !target.classList.contains('rte-resize-handle'))) {
+        const card = target.closest('.rte-image-card');
+        if (card && onImagePreview) {
+          const img = card.querySelector('img');
+          const caption = card.querySelector('.rte-image-caption');
+          if (img) {
+            onImagePreview({
+              src: img.src,
+              caption: caption?.textContent || '',
+              cardId: card.id
+            });
+          }
+        }
       }
       if (target.tagName === 'LI' && target.classList.contains('rte-checkbox-item')) {
         // Only toggle when clicking in the checkbox "gutter" (first ~22px),
@@ -709,6 +737,22 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           .rte-root .rte-image-card {
             font-family: var(--font-kalam, inherit);
             user-select: none;
+            width: 280px !important;
+            max-width: 100% !important;
+            height: auto !important;
+          }
+          .rte-root .rte-image-wrapper {
+            width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+          }
+          .rte-root .rte-image-img,
+          .rte-root img {
+            width: 100% !important;
+            height: auto !important;
+            max-height: 420px !important;
+            object-fit: contain !important;
+            aspect-ratio: auto !important;
           }
           .rte-root .rte-image-caption {
             min-height: 20px;
@@ -826,6 +870,22 @@ export function htmlToMarkdown(html: string): string {
 }
 
 // ---------------------------------------------------------------------
+// Sanitize legacy image styles from older notes so images render in
+// their natural aspect ratio instead of legacy fixed 160px squares.
+// ---------------------------------------------------------------------
+export function sanitizeOldNoteImageStyles(html: string): string {
+  if (!html) return '';
+  return html.replace(/style="([^"]*)"/gi, (match, styleContent) => {
+    const cleanedStyles = styleContent
+      .replace(/height\s*:\s*160px\s*;?/gi, 'height: auto;')
+      .replace(/height\s*:\s*180px\s*;?/gi, 'height: auto;')
+      .replace(/object-fit\s*:\s*cover\s*;?/gi, 'object-fit: contain;')
+      .replace(/max-height\s*:\s*160px\s*;?/gi, 'max-height: 420px;');
+    return `style="${cleanedStyles}"`;
+  });
+}
+
+// ---------------------------------------------------------------------
 // One-time migration: convert legacy markdown-text notes (saved before
 // this editor existed) into HTML so they don't show literal "**bold**"
 // or "- item" text. Detected heuristically — if the content looks like
@@ -833,8 +893,9 @@ export function htmlToMarkdown(html: string): string {
 // ---------------------------------------------------------------------
 export function migrateMarkdownToHtml(content: string): string {
   if (!content) return '';
-  const looksLikeHtml = /<\/?(div|p|li|ul|ol|strong|em|mark|h[1-3]|br)\b/i.test(content);
-  if (looksLikeHtml) return content;
+  const sanitized = sanitizeOldNoteImageStyles(content);
+  const looksLikeHtml = /<\/?(div|p|li|ul|ol|strong|em|mark|h[1-3]|br)\b/i.test(sanitized);
+  if (looksLikeHtml) return sanitized;
 
   const lines = content.split('\n');
   const out: string[] = [];

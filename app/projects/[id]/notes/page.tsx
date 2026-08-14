@@ -25,6 +25,9 @@ interface Note {
   id: string;
   title: string;
   content: string;
+  originalContent?: string | null;
+  refinedContent?: string | null;
+  canvasData?: string | null;
   folder: string;
   section?: string | null;
   tags: string[];
@@ -32,6 +35,27 @@ interface Note {
   isFav: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+interface CanvasBlock {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  content: string;
+  color: string;
+  groupId?: string | null;
+}
+
+interface CanvasGroup {
+  id: string;
+  title: string;
+  color: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 // ---- Note templates -------------------------------------------------
@@ -74,11 +98,6 @@ const NOTE_TEMPLATES: Record<string, { title: string; content: string }> = {
 
 const DEFAULT_TEMPLATE = { title: 'New Note', content: '<div>Start writing...</div>' };
 
-// Sidebar / list column widths are stored in pixels so they can be both
-// collapsed AND drag-resized — Tailwind can't compile dynamic template
-// literal classes like `md:col-span-${var}`, which was the root cause
-// of the broken layout (those classes never exist in the generated CSS,
-// so the columns silently fell back to intrinsic width).
 const SIDEBAR_DEFAULT_WIDTH = 248;
 const SIDEBAR_MIN_WIDTH = 72;
 const SIDEBAR_COLLAPSED_WIDTH = 64;
@@ -110,12 +129,29 @@ export default function FullProjectNotesPage() {
   // Editor states
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
+  const [editOriginalContent, setEditOriginalContent] = useState<string>('');
+  const [editRefinedContent, setEditRefinedContent] = useState<string>('');
+  const [noteTab, setNoteTab] = useState<'original' | 'refined'>('refined');
+
   const [editFolder, setEditFolder] = useState('General');
   const [editSection, setEditSection] = useState('');
   const [editTags, setEditTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [editBacklinks, setEditBacklinks] = useState<string[]>([]);
   const [backlinkTarget, setBacklinkTarget] = useState<string>('none');
+
+  // Lightbox Image Preview Modal state
+  const [previewImage, setPreviewImage] = useState<{ src: string; caption: string; cardId: string } | null>(null);
+  const [previewCaptionInput, setPreviewCaptionInput] = useState('');
+
+  // Canvas / Draggable Text Blocks / Grouping state (tldr style)
+  const [canvasBlocks, setCanvasBlocks] = useState<CanvasBlock[]>([]);
+  const [canvasGroups, setCanvasGroups] = useState<CanvasGroup[]>([]);
+  const [selectedBlockIds, setSelectedBlockIds] = useState<string[]>([]);
+  const [isCanvasActive, setIsCanvasActive] = useState(false);
+
+  // Section Divider Menu state
+  const [showDividerMenu, setShowDividerMenu] = useState(false);
 
   // Font family & size states
   const [editorFont, setEditorFont] = useState<string>('kalam');
@@ -317,17 +353,25 @@ export default function FullProjectNotesPage() {
   }, [quickSwitcherQuery, notes, recentNotes]);
 
   // Refs to store the latest editing state values to prevent stale closures in async saves
-  const lastSavedState = useRef({ id: '', title: '', content: '', folder: '', section: '' });
+  const lastSavedState = useRef({ id: '', title: '', content: '', folder: '', section: '', originalContent: '', refinedContent: '', canvasData: '' });
 
   const editTitleRef = useRef(editTitle);
   const editContentRef = useRef(editContent);
   const editFolderRef = useRef(editFolder);
   const editSectionRef = useRef(editSection);
+  const editOriginalContentRef = useRef(editOriginalContent);
+  const editRefinedContentRef = useRef(editRefinedContent);
+  const canvasBlocksRef = useRef(canvasBlocks);
+  const canvasGroupsRef = useRef(canvasGroups);
 
   useEffect(() => { editTitleRef.current = editTitle; }, [editTitle]);
   useEffect(() => { editContentRef.current = editContent; }, [editContent]);
   useEffect(() => { editFolderRef.current = editFolder; }, [editFolder]);
   useEffect(() => { editSectionRef.current = editSection; }, [editSection]);
+  useEffect(() => { editOriginalContentRef.current = editOriginalContent; }, [editOriginalContent]);
+  useEffect(() => { editRefinedContentRef.current = editRefinedContent; }, [editRefinedContent]);
+  useEffect(() => { canvasBlocksRef.current = canvasBlocks; }, [canvasBlocks]);
+  useEffect(() => { canvasGroupsRef.current = canvasGroups; }, [canvasGroups]);
 
   const flushPendingSave = useCallback(async () => {
     const noteId = lastSavedState.current.id;
@@ -337,31 +381,41 @@ export default function FullProjectNotesPage() {
     const currentContent = editContentRef.current;
     const currentFolder = editFolderRef.current;
     const currentSection = editSectionRef.current;
+    const currentOriginal = editOriginalContentRef.current;
+    const currentRefined = editRefinedContentRef.current;
+    const currentCanvasData = JSON.stringify({ blocks: canvasBlocksRef.current, groups: canvasGroupsRef.current });
 
     const last = lastSavedState.current;
     const isDifferent =
       currentTitle !== last.title ||
       currentContent !== last.content ||
       currentFolder !== last.folder ||
-      currentSection !== last.section;
+      currentSection !== last.section ||
+      currentOriginal !== last.originalContent ||
+      currentRefined !== last.refinedContent ||
+      currentCanvasData !== last.canvasData;
 
     if (isDifferent) {
-      // Optimistically update the lastSavedState ref to prevent double saves
       lastSavedState.current = {
         id: noteId,
         title: currentTitle,
         content: currentContent,
         folder: currentFolder,
         section: currentSection,
+        originalContent: currentOriginal,
+        refinedContent: currentRefined,
+        canvasData: currentCanvasData,
       };
 
-      // Optimistically update notes state synchronously so clicking back shows latest edits
       setNotes(prev => prev.map(n => n.id === noteId ? {
         ...n,
         title: currentTitle,
         content: currentContent,
         folder: currentFolder,
-        section: currentSection || null
+        section: currentSection || null,
+        originalContent: currentOriginal || null,
+        refinedContent: currentRefined || null,
+        canvasData: currentCanvasData
       } : n));
 
       try {
@@ -372,7 +426,10 @@ export default function FullProjectNotesPage() {
             title: currentTitle,
             content: currentContent,
             folder: currentFolder,
-            section: currentSection || null
+            section: currentSection || null,
+            originalContent: currentOriginal || null,
+            refinedContent: currentRefined || null,
+            canvasData: currentCanvasData
           })
         });
         if (res.ok) {
@@ -382,7 +439,10 @@ export default function FullProjectNotesPage() {
             title: data.title,
             content: data.content,
             folder: data.folder,
-            section: data.section
+            section: data.section,
+            originalContent: data.originalContent,
+            refinedContent: data.refinedContent,
+            canvasData: data.canvasData
           } : n));
         }
       } catch (err) {
@@ -392,7 +452,6 @@ export default function FullProjectNotesPage() {
   }, []);
 
   const selectNote = (note: Note) => {
-    // Flush any pending changes of the previously selected note
     flushPendingSave();
 
     setSelectedNoteId(note.id);
@@ -400,8 +459,21 @@ export default function FullProjectNotesPage() {
     editTitleRef.current = note.title;
 
     const contentHtml = migrateMarkdownToHtml(note.content);
-    setEditContent(contentHtml);
-    editContentRef.current = contentHtml;
+    const origHtml = note.originalContent ? migrateMarkdownToHtml(note.originalContent) : contentHtml;
+    const refHtml = note.refinedContent ? migrateMarkdownToHtml(note.refinedContent) : '';
+
+    setEditOriginalContent(origHtml);
+    setEditRefinedContent(refHtml);
+
+    if (refHtml && note.refinedContent) {
+      setNoteTab('refined');
+      setEditContent(refHtml);
+      editContentRef.current = refHtml;
+    } else {
+      setNoteTab('original');
+      setEditContent(contentHtml);
+      editContentRef.current = contentHtml;
+    }
 
     setEditFolder(note.folder);
     editFolderRef.current = note.folder;
@@ -413,13 +485,32 @@ export default function FullProjectNotesPage() {
     setEditBacklinks(note.backlinks || []);
     setTagInput('');
 
-    // Set the initial saved state
+    // Parse canvasData
+    if (note.canvasData) {
+      try {
+        const parsed = JSON.parse(note.canvasData);
+        setCanvasBlocks(parsed.blocks || []);
+        setCanvasGroups(parsed.groups || []);
+      } catch (e) {
+        setCanvasBlocks([]);
+        setCanvasGroups([]);
+      }
+    } else {
+      setCanvasBlocks([]);
+      setCanvasGroups([]);
+    }
+
+    setSelectedBlockIds([]);
+
     lastSavedState.current = {
       id: note.id,
       title: note.title,
       content: contentHtml,
       folder: note.folder,
       section: note.section || '',
+      originalContent: origHtml,
+      refinedContent: refHtml,
+      canvasData: note.canvasData || '',
     };
 
     setRecentNoteIds(prev => [note.id, ...prev.filter(id => id !== note.id)].slice(0, 10));
@@ -787,6 +878,27 @@ export default function FullProjectNotesPage() {
     }
   };
 
+  const handleToggleNoteTab = (targetTab: 'original' | 'refined') => {
+    if (targetTab === noteTab) return;
+    if (noteTab === 'original') {
+      setEditOriginalContent(editContent);
+      editOriginalContentRef.current = editContent;
+      const targetContent = editRefinedContent || editContent;
+      setEditContent(targetContent);
+      editContentRef.current = targetContent;
+      setNoteTab('refined');
+      handleSave({ originalContent: editContent, content: targetContent });
+    } else {
+      setEditRefinedContent(editContent);
+      editRefinedContentRef.current = editContent;
+      const targetContent = editOriginalContent || editContent;
+      setEditContent(targetContent);
+      editContentRef.current = targetContent;
+      setNoteTab('original');
+      handleSave({ refinedContent: editContent, content: targetContent });
+    }
+  };
+
   // AI Helper: call Gemini
   const runAiHelper = async (type: 'summarize' | 'refine' | 'extract-meeting' | 'refine-layman') => {
     const plainText = htmlToPlainText(editContent);
@@ -835,21 +947,29 @@ export default function FullProjectNotesPage() {
           handleSave({ content: updatedVal });
           toast.success('Meeting summary added! 🧠');
         } else if (type === 'refine') {
+          const origVal = editOriginalContent || editContent;
           const html =
             `<h2>AI Technical Specification</h2>` +
             `<h3>Functional Requirements</h3><ul>${(data.functionalReqs || []).map((f: string) => `<li>${esc(f)}</li>`).join('') || '<li>\u200B</li>'}</ul>` +
             `<h3>Tech Specs</h3><ul><li>APIs: ${esc((data.technicalSpecs?.apis || []).join(', '))}</li><li>Database: ${esc((data.technicalSpecs?.database || []).join(', '))}</li></ul>` +
             `<h3>Edge Cases</h3><ul>${(data.edgeCases || []).map((e: string) => `<li>${esc(e)}</li>`).join('') || '<li>\u200B</li>'}</ul>`;
           const updatedVal = editContent + html;
+          setEditOriginalContent(origVal);
+          setEditRefinedContent(updatedVal);
           setEditContent(updatedVal);
           editContentRef.current = updatedVal;
-          handleSave({ content: updatedVal });
+          setNoteTab('refined');
+          handleSave({ originalContent: origVal, refinedContent: updatedVal, content: updatedVal });
           toast.success('Technical specs appended! 🏗️');
         } else if (type === 'refine-layman') {
+          const origVal = editOriginalContent || editContent;
           const refinedVal = migrateMarkdownToHtml(data.refinedNotes || '');
+          setEditOriginalContent(origVal);
+          setEditRefinedContent(refinedVal);
           setEditContent(refinedVal);
           editContentRef.current = refinedVal;
-          handleSave({ content: refinedVal });
+          setNoteTab('refined');
+          handleSave({ originalContent: origVal, refinedContent: refinedVal, content: refinedVal });
           toast.success('Layman text beautifully refined! ✨');
         }
       } else {
@@ -861,6 +981,92 @@ export default function FullProjectNotesPage() {
     } finally {
       setIsAiLoading(false);
     }
+  };
+
+  // Canvas Block & Grouping handlers
+  const addCanvasBlock = (x = 40, y = 40, text = 'New Canvas Note...') => {
+    const newBlock: CanvasBlock = {
+      id: 'block-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+      x,
+      y,
+      width: 220,
+      height: 120,
+      content: text,
+      color: '#fff9c4'
+    };
+    const updated = [...canvasBlocks, newBlock];
+    setCanvasBlocks(updated);
+    canvasBlocksRef.current = updated;
+    flushPendingSave();
+    toast.success('Added freeform text block! 📝');
+  };
+
+  const updateCanvasBlock = (id: string, updates: Partial<CanvasBlock>) => {
+    const updated = canvasBlocks.map(b => b.id === id ? { ...b, ...updates } : b);
+    setCanvasBlocks(updated);
+    canvasBlocksRef.current = updated;
+  };
+
+  const deleteCanvasBlock = (id: string) => {
+    const updated = canvasBlocks.filter(b => b.id !== id);
+    setCanvasBlocks(updated);
+    canvasBlocksRef.current = updated;
+    setSelectedBlockIds(prev => prev.filter(bId => bId !== id));
+    flushPendingSave();
+  };
+
+  const toggleSelectBlock = (id: string, multi = false) => {
+    if (multi) {
+      setSelectedBlockIds(prev => prev.includes(id) ? prev.filter(bId => bId !== id) : [...prev, id]);
+    } else {
+      setSelectedBlockIds([id]);
+    }
+  };
+
+  const groupSelectedBlocks = () => {
+    if (selectedBlockIds.length < 2) {
+      toast.error('Select at least 2 canvas blocks to group them.');
+      return;
+    }
+    const targetBlocks = canvasBlocks.filter(b => selectedBlockIds.includes(b.id));
+    if (targetBlocks.length === 0) return;
+
+    const minX = Math.min(...targetBlocks.map(b => b.x)) - 16;
+    const minY = Math.min(...targetBlocks.map(b => b.y)) - 36;
+    const maxX = Math.max(...targetBlocks.map(b => b.x + b.width)) + 16;
+    const maxY = Math.max(...targetBlocks.map(b => b.y + b.height)) + 16;
+
+    const newGroup: CanvasGroup = {
+      id: 'group-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+      title: 'Grouped Section ' + (canvasGroups.length + 1),
+      color: '#f1f5f9',
+      x: Math.max(0, minX),
+      y: Math.max(0, minY),
+      width: Math.max(260, maxX - minX),
+      height: Math.max(160, maxY - minY)
+    };
+
+    const updatedBlocks = canvasBlocks.map(b => selectedBlockIds.includes(b.id) ? { ...b, groupId: newGroup.id } : b);
+    const updatedGroups = [...canvasGroups, newGroup];
+
+    setCanvasBlocks(updatedBlocks);
+    setCanvasGroups(updatedGroups);
+    canvasBlocksRef.current = updatedBlocks;
+    canvasGroupsRef.current = updatedGroups;
+    flushPendingSave();
+    toast.success(`Grouped ${selectedBlockIds.length} items together! 📦`);
+  };
+
+  const ungroupBlocks = (groupId: string) => {
+    const updatedGroups = canvasGroups.filter(g => g.id !== groupId);
+    const updatedBlocks = canvasBlocks.map(b => b.groupId === groupId ? { ...b, groupId: undefined } : b);
+
+    setCanvasGroups(updatedGroups);
+    setCanvasBlocks(updatedBlocks);
+    canvasGroupsRef.current = updatedGroups;
+    canvasBlocksRef.current = updatedBlocks;
+    flushPendingSave();
+    toast.success('Ungrouped items 🔓');
   };
 
 
@@ -1525,8 +1731,8 @@ export default function FullProjectNotesPage() {
 
                   {/* Advanced Editor Controls Toolbar */}
                   <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-50 border-2 border-[#2d2d2d]/10 rounded-xl">
-                    {/* Font Settings Toggle */}
-                    <div className="flex items-center gap-1.5">
+                    {/* Font Settings Toggle & Freeform Canvas */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <Button
                         onClick={() => setIsTypographyOpen(true)}
                         variant="ghost"
@@ -1536,6 +1742,93 @@ export default function FullProjectNotesPage() {
                         <Palette className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
                         Style Lab
                       </Button>
+
+                      {/* Section Divider Dropdown */}
+                      <div className="relative">
+                        <Button
+                          onClick={() => setShowDividerMenu(!showDividerMenu)}
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 font-kalam text-xs gap-1 border border-[#2d2d2d]/20 bg-white hover:bg-slate-50 shadow-sm rounded-lg text-slate-700"
+                          title="Insert Section Divider Line"
+                        >
+                          <Layers className="w-3.5 h-3.5 text-amber-600" />
+                          Section Divider
+                        </Button>
+                        {showDividerMenu && (
+                          <div className="absolute left-0 top-full mt-1 bg-white border-2 border-[#2d2d2d] rounded-xl shadow-lg p-2 z-50 w-44 space-y-1 font-kalam text-xs">
+                            <button
+                              onClick={() => { editorRef.current?.insertSectionDivider('wavy'); setShowDividerMenu(false); }}
+                              className="w-full text-left px-2 py-1.5 rounded hover:bg-amber-50 font-bold flex items-center justify-between"
+                            >
+                              <span>Wavy Line</span>
+                              <span className="text-[10px] text-amber-600">〰️</span>
+                            </button>
+                            <button
+                              onClick={() => { editorRef.current?.insertSectionDivider('dashed'); setShowDividerMenu(false); }}
+                              className="w-full text-left px-2 py-1.5 rounded hover:bg-amber-50 font-bold flex items-center justify-between"
+                            >
+                              <span>Dashed Line</span>
+                              <span className="text-[10px] text-slate-500">---</span>
+                            </button>
+                            <button
+                              onClick={() => { editorRef.current?.insertSectionDivider('gradient'); setShowDividerMenu(false); }}
+                              className="w-full text-left px-2 py-1.5 rounded hover:bg-amber-50 font-bold flex items-center justify-between"
+                            >
+                              <span>Gradient Glow</span>
+                              <span className="text-[10px] text-purple-600">✨</span>
+                            </button>
+                            <button
+                              onClick={() => { editorRef.current?.insertSectionDivider('vintage'); setShowDividerMenu(false); }}
+                              className="w-full text-left px-2 py-1.5 rounded hover:bg-amber-50 font-bold flex items-center justify-between"
+                            >
+                              <span>Vintage Double</span>
+                              <span className="text-[10px] text-amber-800">═</span>
+                            </button>
+                            <button
+                              onClick={() => { editorRef.current?.insertSectionDivider('stitched'); setShowDividerMenu(false); }}
+                              className="w-full text-left px-2 py-1.5 rounded hover:bg-amber-50 font-bold flex items-center justify-between"
+                            >
+                              <span>Stitched Dotted</span>
+                              <span className="text-[10px] text-amber-700">···</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Freeform Canvas & Grouping Tools */}
+                      <Button
+                        onClick={() => setIsCanvasActive(!isCanvasActive)}
+                        variant="ghost"
+                        size="sm"
+                        className={`h-8 font-kalam text-xs gap-1 border-2 transition-all rounded-lg ${
+                          isCanvasActive ? 'bg-amber-100 border-amber-600 text-amber-900 font-bold' : 'border-[#2d2d2d]/20 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        ✍️ Canvas Notes
+                      </Button>
+                      {isCanvasActive && (
+                        <>
+                          <Button
+                            onClick={() => addCanvasBlock(60, 60)}
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 font-kalam text-xs bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100 rounded-lg"
+                          >
+                            + Text Box
+                          </Button>
+                          <Button
+                            onClick={groupSelectedBlocks}
+                            variant="ghost"
+                            size="sm"
+                            disabled={selectedBlockIds.length < 2}
+                            className="h-8 font-kalam text-xs bg-purple-50 border border-purple-300 text-purple-800 hover:bg-purple-100 disabled:opacity-50 rounded-lg"
+                            title="Group selected items (tldr style)"
+                          >
+                            📦 Group ({selectedBlockIds.length})
+                          </Button>
+                        </>
+                      )}
                     </div>
 
                     {/* Undo / Redo */}
@@ -1608,12 +1901,14 @@ export default function FullProjectNotesPage() {
                         <Button variant="ghost" size="icon" className="h-6 w-6 rounded hover:bg-slate-200" onClick={() => applyInline('indent')} title="Indent (Tab)"><Indent className="w-3.5 h-3.5" /></Button>
                       </div>
 
+                      {/* Highlighter Colors — Includes RED color */}
                       <div className="flex items-center gap-0.5 border-l pl-1.5 border-[#2d2d2d]/10">
-                        <button onClick={() => applyHighlight('#fef08a')} className="w-4 h-4 rounded-full bg-[#fef08a] border border-[#2d2d2d]/20" title="Yellow Highlight" />
-                        <button onClick={() => applyHighlight('#d1fae5')} className="w-4 h-4 rounded-full bg-[#d1fae5] border border-[#2d2d2d]/20" title="Green Highlight" />
-                        <button onClick={() => applyHighlight('#dbeafe')} className="w-4 h-4 rounded-full bg-[#dbeafe] border border-[#2d2d2d]/20" title="Blue Highlight" />
-                        <button onClick={() => applyHighlight('#fce7f3')} className="w-4 h-4 rounded-full bg-[#fce7f3] border border-[#2d2d2d]/20" title="Pink Highlight" />
-                        <button onClick={() => applyHighlight('#ffedd5')} className="w-4 h-4 rounded-full bg-[#ffedd5] border border-[#2d2d2d]/20" title="Orange Highlight" />
+                        <button onClick={() => applyHighlight('#fecdd3')} className="w-4 h-4 rounded-full bg-[#fecdd3] border border-[#2d2d2d]/20 hover:scale-110 transition-transform" title="Red Highlight" />
+                        <button onClick={() => applyHighlight('#fef08a')} className="w-4 h-4 rounded-full bg-[#fef08a] border border-[#2d2d2d]/20 hover:scale-110 transition-transform" title="Yellow Highlight" />
+                        <button onClick={() => applyHighlight('#d1fae5')} className="w-4 h-4 rounded-full bg-[#d1fae5] border border-[#2d2d2d]/20 hover:scale-110 transition-transform" title="Green Highlight" />
+                        <button onClick={() => applyHighlight('#dbeafe')} className="w-4 h-4 rounded-full bg-[#dbeafe] border border-[#2d2d2d]/20 hover:scale-110 transition-transform" title="Blue Highlight" />
+                        <button onClick={() => applyHighlight('#fce7f3')} className="w-4 h-4 rounded-full bg-[#fce7f3] border border-[#2d2d2d]/20 hover:scale-110 transition-transform" title="Pink Highlight" />
+                        <button onClick={() => applyHighlight('#ffedd5')} className="w-4 h-4 rounded-full bg-[#ffedd5] border border-[#2d2d2d]/20 hover:scale-110 transition-transform" title="Orange Highlight" />
                       </div>
 
                       {/* Text Colors */}
@@ -1626,8 +1921,6 @@ export default function FullProjectNotesPage() {
                       </div>
                     </div>
 
-                    {/* Live word count badge replaces the old Edit/Preview toggle —
-                        the rich text editor IS the final view now, no separate preview needed */}
                     <div className="font-kalam text-[10px] text-slate-400 px-2 hidden sm:block">
                       {editorStats.words} words · {editorStats.readingMins} min read
                     </div>
@@ -1715,50 +2008,78 @@ export default function FullProjectNotesPage() {
                     </div>
                   )}
 
-                  {/* AI Assistant panel */}
-                  <div className="flex items-center gap-1.5 p-2 bg-[#fdfbf7] border border-dashed border-[#e8dac0] rounded-xl shrink-0">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-                    <span className="font-kalam text-[11px] font-bold text-amber-700 mr-2">AI Copilot:</span>
-                    <div className="flex gap-1.5 flex-wrap">
-                      <Button
-                        onClick={() => runAiHelper('summarize')}
-                        disabled={isAiLoading}
-                        size="sm"
-                        className="h-6 text-[9px] font-kalam bg-white border border-[#2d2d2d] text-[#2d2d2d] hover:bg-slate-50 shadow-sm"
-                      >
-                        Summarize
-                      </Button>
-                      <Button
-                        onClick={() => runAiHelper('refine')}
-                        disabled={isAiLoading}
-                        size="sm"
-                        className="h-6 text-[9px] font-kalam bg-white border border-[#2d2d2d] text-[#2d2d2d] hover:bg-slate-50 shadow-sm"
-                      >
-                        Refine Specs
-                      </Button>
-                      <Button
-                        onClick={() => runAiHelper('refine-layman')}
-                        disabled={isAiLoading}
-                        size="sm"
-                        className="h-6 text-[9px] font-kalam bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 shadow-sm"
-                      >
-                        Refine Layman Notes ✨
-                      </Button>
-                      {editFolder === 'Client Meetings' && (
+                  {/* AI Assistant panel & Original/Refined Toggle */}
+                  <div className="flex items-center justify-between gap-1.5 p-2 bg-[#fdfbf7] border border-dashed border-[#e8dac0] rounded-xl shrink-0 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                      <span className="font-kalam text-[11px] font-bold text-amber-700 mr-2">AI Copilot:</span>
+                      <div className="flex gap-1.5 flex-wrap">
                         <Button
-                          onClick={() => runAiHelper('extract-meeting')}
+                          onClick={() => runAiHelper('summarize')}
                           disabled={isAiLoading}
                           size="sm"
-                          className="h-6 text-[9px] font-kalam bg-amber-50 border border-[#d4a574] text-amber-800 hover:bg-amber-100 shadow-sm"
+                          className="h-6 text-[9px] font-kalam bg-white border border-[#2d2d2d] text-[#2d2d2d] hover:bg-slate-50 shadow-sm"
                         >
-                          Extract Meetings
+                          Summarize
                         </Button>
-                      )}
+                        <Button
+                          onClick={() => runAiHelper('refine')}
+                          disabled={isAiLoading}
+                          size="sm"
+                          className="h-6 text-[9px] font-kalam bg-white border border-[#2d2d2d] text-[#2d2d2d] hover:bg-slate-50 shadow-sm"
+                        >
+                          Refine Specs
+                        </Button>
+                        <Button
+                          onClick={() => runAiHelper('refine-layman')}
+                          disabled={isAiLoading}
+                          size="sm"
+                          className="h-6 text-[9px] font-kalam bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 shadow-sm"
+                        >
+                          Refine Layman Notes ✨
+                        </Button>
+                        {editFolder === 'Client Meetings' && (
+                          <Button
+                            onClick={() => runAiHelper('extract-meeting')}
+                            disabled={isAiLoading}
+                            size="sm"
+                            className="h-6 text-[9px] font-kalam bg-amber-50 border border-[#d4a574] text-amber-800 hover:bg-amber-100 shadow-sm"
+                          >
+                            Extract Meetings
+                          </Button>
+                        )}
+                      </div>
+                      {isAiLoading && <div className="w-3.5 h-3.5 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" />}
                     </div>
-                    {isAiLoading && <div className="ml-auto w-3.5 h-3.5 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" />}
+
+                    {/* Original vs Refined Sync Toggle Pills */}
+                    {(editOriginalContent || editRefinedContent) && (
+                      <div className="flex items-center gap-1 bg-[#2d2d2d]/5 p-0.5 rounded-lg border border-[#2d2d2d]/10">
+                        <button
+                          onClick={() => handleToggleNoteTab('original')}
+                          className={`font-kalam text-[10px] px-2 py-0.5 rounded-md transition-all font-bold ${
+                            noteTab === 'original'
+                              ? 'bg-[#2d2d2d] text-white shadow-sm'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          📜 Original Note
+                        </button>
+                        <button
+                          onClick={() => handleToggleNoteTab('refined')}
+                          className={`font-kalam text-[10px] px-2 py-0.5 rounded-md transition-all font-bold ${
+                            noteTab === 'refined'
+                              ? 'bg-purple-700 text-white shadow-sm'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          ✨ Refined Note
+                        </button>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Main Content Area: Editor vs Preview */}
+                  {/* Main Content Area: Editor vs Freeform Canvas */}
                   <div className={`flex-1 relative border-2 border-[#2d2d2d]/10 rounded-xl overflow-hidden shadow-inner p-1 flex flex-col ${
                     isFocusMode ? "min-h-0 h-full" : "min-h-[300px] max-h-[600px]"
                   }`}>
@@ -1780,14 +2101,12 @@ export default function FullProjectNotesPage() {
                             className="group relative flex items-center justify-center w-5 h-5 hover:scale-125 transition-all"
                             title={h.text}
                           >
-                            {/* Dash representing the heading */}
                             <span className={`rounded-full transition-all duration-150 ${
                               h.tag === 'h1' ? 'w-3 h-1 bg-[#b45309]' :
                               h.tag === 'h2' ? 'w-2 h-1 bg-[#d97706]' :
                               'w-1.5 h-0.5 bg-[#f59e0b]/70'
                             } group-hover:bg-[#2d2d2d] group-hover:w-3.5`} />
                             
-                            {/* Floating Tooltip/Badge on hover */}
                             <span className="pointer-events-none absolute right-7 opacity-0 group-hover:opacity-100 transition-opacity bg-[#2d2d2d] text-white text-[10px] font-kalam py-1 px-2.5 rounded-lg whitespace-nowrap shadow-md border border-slate-700">
                               {h.text}
                             </span>
@@ -1875,21 +2194,103 @@ export default function FullProjectNotesPage() {
                       )}
                     </AnimatePresence>
 
-                    <RichTextEditor
-                      ref={editorRef}
-                      html={editContent}
-                      onChange={val => {
-                        setEditContent(val);
-                        editContentRef.current = val;
-                      }}
-                      placeholder="Write notes, meeting transcripts, or log items..."
-                      fontClass={editorFontClass}
-                      fontSize={editorFontSize}
-                      onSelectionFormatsChange={setActiveFormats}
-                    />
+                    {/* Rich Text Editor */}
+                    <div className="relative flex-1 h-full overflow-hidden flex flex-col">
+                      <RichTextEditor
+                        ref={editorRef}
+                        html={editContent}
+                        onChange={val => {
+                          setEditContent(val);
+                          editContentRef.current = val;
+                        }}
+                        placeholder="Write notes, meeting transcripts, or log items..."
+                        fontClass={editorFontClass}
+                        fontSize={editorFontSize}
+                        onImagePreview={(data) => {
+                          setPreviewImage(data);
+                          setPreviewCaptionInput(data.caption);
+                        }}
+                        onSelectionFormatsChange={setActiveFormats}
+                      />
+
+                      {/* Freeform Canvas Layer (tldr style) */}
+                      {isCanvasActive && (
+                        <div
+                          className="absolute inset-0 bg-slate-50/70 backdrop-blur-[1px] z-20 overflow-auto p-4 border-2 border-dashed border-amber-400 rounded-lg select-none"
+                          onDoubleClick={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            addCanvasBlock(e.clientX - rect.left, e.clientY - rect.top);
+                          }}
+                        >
+                          <div className="absolute top-2 left-2 bg-amber-100 border border-amber-300 text-amber-900 font-kalam text-[10px] px-2.5 py-1 rounded-full shadow-sm pointer-events-none font-bold">
+                            ✍️ Canvas Active — Double click empty space to write note blocks, select 2+ items & click Group (⌘G)
+                          </div>
+
+                          {/* Render Canvas Groups */}
+                          {canvasGroups.map(group => (
+                            <div
+                              key={group.id}
+                              style={{ left: group.x, top: group.y, width: group.width, height: group.height }}
+                              className="absolute border-2 border-dashed border-purple-500 rounded-2xl bg-purple-50/40 p-2 shadow-sm pointer-events-auto"
+                            >
+                              <div className="flex items-center justify-between font-kalam text-xs font-bold text-purple-900 bg-purple-100/90 px-2 py-0.5 rounded-lg border border-purple-200 mb-2">
+                                <span className="flex items-center gap-1">📦 {group.title}</span>
+                                <button
+                                  onClick={() => ungroupBlocks(group.id)}
+                                  className="text-purple-600 hover:text-purple-950 text-[10px] underline ml-2"
+                                >
+                                  Ungroup
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* Render Canvas Blocks */}
+                          {canvasBlocks.map(block => {
+                            const isSelected = selectedBlockIds.includes(block.id);
+                            return (
+                              <div
+                                key={block.id}
+                                style={{
+                                  left: block.x,
+                                  top: block.y,
+                                  width: block.width,
+                                  backgroundColor: block.color,
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleSelectBlock(block.id, e.shiftKey || e.metaKey || e.ctrlKey);
+                                }}
+                                className={`absolute p-3 rounded-2xl border-2 shadow-[3px_3px_0px_rgba(45,45,45,1)] transition-all cursor-move ${
+                                  isSelected ? 'border-purple-600 ring-2 ring-purple-400' : 'border-[#2d2d2d]'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-1 border-b border-[#2d2d2d]/10 pb-1 mb-2">
+                                  <span className="font-kalam text-[10px] font-bold text-slate-600">Note Card</span>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); deleteCanvasBlock(block.id); }}
+                                      className="text-red-500 font-bold text-xs hover:text-red-700 px-1"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                </div>
+                                <textarea
+                                  value={block.content}
+                                  onChange={(e) => updateCanvasBlock(block.id, { content: e.target.value })}
+                                  placeholder="Write notes here..."
+                                  className="w-full bg-transparent font-kalam text-xs outline-none resize-none leading-relaxed min-h-[60px]"
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
 
                     {/* Word count / reading time footer */}
-                    <div className="absolute bottom-2 right-3 flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-[#2d2d2d]/10 rounded-full px-3 py-1 shadow-sm pointer-events-none">
+                    <div className="absolute bottom-2 right-3 flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-[#2d2d2d]/10 rounded-full px-3 py-1 shadow-sm pointer-events-none z-30">
                       <span className="font-kalam text-[10px] text-slate-500">{editorStats.words} words</span>
                       <span className="text-slate-300">·</span>
                       <span className="font-kalam text-[10px] text-slate-500">{editorStats.chars} chars</span>
@@ -2094,6 +2495,101 @@ export default function FullProjectNotesPage() {
         )}
 
       </div>
+
+      {/* Image Lightbox Preview Modal */}
+      <AnimatePresence>
+        {previewImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[100] flex items-center justify-center p-3 md:p-6"
+            onClick={() => setPreviewImage(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.92, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.92, y: 15 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+              className="bg-white border-2 border-[#2d2d2d] rounded-3xl w-full max-w-6xl max-h-[92vh] shadow-[10px_10px_0px_rgba(45,45,45,1)] flex flex-col md:flex-row overflow-hidden relative"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setPreviewImage(null)}
+                className="absolute top-4 right-4 w-9 h-9 rounded-full bg-slate-800 text-white hover:bg-slate-700 border-2 border-slate-600 flex items-center justify-center font-bold text-xl shadow-lg z-50 transition-transform hover:scale-110"
+                title="Close Preview (Esc)"
+              >
+                ×
+              </button>
+
+              {/* Image Preview Viewport Container */}
+              <div className="flex-1 bg-slate-950 p-6 flex items-center justify-center relative min-h-[350px] md:min-h-[550px] overflow-auto">
+                <img
+                  src={previewImage.src}
+                  alt="Image full preview"
+                  className="max-w-full max-h-[80vh] w-auto h-auto object-contain rounded-xl shadow-2xl border-2 border-slate-800"
+                />
+              </div>
+
+              {/* Image Notes / Caption Panel */}
+              <div className="w-full md:w-96 p-6 bg-[#fefdfb] border-t-2 md:border-t-0 md:border-l-2 border-[#2d2d2d] flex flex-col justify-between space-y-4 shrink-0 font-kalam">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b pb-3 border-[#2d2d2d]/10">
+                    <h3 className="font-caveat text-3xl font-bold text-[#2d2d2d] flex items-center gap-2">
+                      🖼️ Image Notes & Specs
+                    </h3>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="font-kalam text-xs font-bold text-slate-600 uppercase tracking-wider block">Image Caption / Notes</label>
+                    <textarea
+                      value={previewCaptionInput}
+                      onChange={e => setPreviewCaptionInput(e.target.value)}
+                      placeholder="Write notes, requirements, or descriptions for this image..."
+                      className="w-full h-52 p-3 font-kalam text-xs leading-relaxed border-2 border-[#2d2d2d]/20 rounded-2xl bg-white focus:border-[#2d2d2d] outline-none resize-none shadow-inner"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-3 border-t border-[#2d2d2d]/10">
+                  <Button
+                    onClick={() => {
+                      if (!previewImage) return;
+                      // Sync caption back into editor DOM HTML
+                      const parser = new DOMParser();
+                      const doc = parser.parseFromString(editContent, 'text/html');
+                      const card = doc.getElementById(previewImage.cardId);
+                      if (card) {
+                        const captionDiv = card.querySelector('.rte-image-caption');
+                        if (captionDiv) {
+                          captionDiv.textContent = previewCaptionInput;
+                        }
+                      }
+                      const updatedHtml = doc.body.innerHTML;
+                      setEditContent(updatedHtml);
+                      editContentRef.current = updatedHtml;
+                      handleSave({ content: updatedHtml });
+                      setPreviewImage(null);
+                      toast.success('Image notes saved and synced! 🖼️');
+                    }}
+                    className="w-full journal-btn-primary py-2.5 text-xs font-kalam font-bold rounded-xl"
+                  >
+                    Save & Sync Notes 💾
+                  </Button>
+                  <Button
+                    onClick={() => setPreviewImage(null)}
+                    variant="outline"
+                    className="w-full font-kalam text-xs rounded-xl border-2 border-[#2d2d2d]"
+                  >
+                    Close Preview
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Quick Switcher (⌘K) */}
       <AnimatePresence>

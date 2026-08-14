@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { AppProvider, useApp } from '@/context/AppContext';
 import FloatingNav from '@/components/FloatingNav';
 import { JarvisCompanion } from '@/components/JarvisCompanion';
+import { QuarterUtilityMenu } from '@/components/QuarterUtilityMenu';
 import { Toaster } from '@/components/ui/sonner';
 import { LandingPage } from '@/views/LandingPage';
 import { SessionProvider } from 'next-auth/react';
@@ -62,6 +63,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
           ]}
         />
         <JarvisCompanion currentPage={pathname?.replace('/', '') || 'dashboard'} />
+        <QuarterUtilityMenu />
         
         <main className="pt-12 pb-8 px-4 sm:px-6 lg:px-8">
           {children}

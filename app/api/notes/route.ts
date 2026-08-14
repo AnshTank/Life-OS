@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     const userId = (session.user as any).id;
 
     const body = await req.json();
-    const { title, content, folder, projectId, tags, backlinks, isFav, section } = body;
+    const { title, content, originalContent, refinedContent, canvasData, folder, projectId, tags, backlinks, isFav, section } = body;
 
     if (!title || !title.trim()) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 });
@@ -57,6 +57,9 @@ export async function POST(req: NextRequest) {
         userId,
         title: title.trim(),
         content: content || '',
+        originalContent: originalContent || null,
+        refinedContent: refinedContent || null,
+        canvasData: canvasData || null,
         folder: folder || 'All',
         section: section || null,
         projectId: (projectId && projectId !== 'none') ? projectId : null,

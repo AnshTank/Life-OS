@@ -56,6 +56,39 @@ const compressImage = (dataUrl: string, maxWidth: number, maxHeight: number, cal
   img.src = dataUrl;
 };
 
+/**
+ * Style tokens for content this editor *generates*.
+ *
+ * These strings land inside `style="…"` attributes on nodes that get persisted
+ * into `Note.content`, so they must survive a round-trip through the database.
+ * `var()` resolves fine inside an inline style attribute, which lets saved HTML
+ * pick up whatever the token layer currently says — retune the look in
+ * `globals.css` under `.notes-suite` and old notes follow along. The second
+ * argument is the fallback for the (unlikely) case this editor is mounted
+ * outside that scope.
+ */
+const TOK = {
+  line: 'var(--rte-divider, #d6d3d1)',
+  accent: 'var(--rte-divider-accent, #e9a23b)',
+  grad1: 'var(--rte-grad-1, #f59e0b)',
+  grad2: 'var(--rte-grad-2, #ec4899)',
+  grad3: 'var(--rte-grad-3, #3b82f6)',
+  grad4: 'var(--rte-grad-4, #10b981)',
+  imgBorder: 'var(--rte-border, #e8e8e5)',
+  imgShadow: 'var(--rte-shadow, 0 1px 3px rgba(15, 23, 42, 0.06))',
+  imgSurface: 'var(--rte-surface, #ffffff)',
+  ink: 'var(--rte-ink, #1c1c1a)',
+  danger: 'var(--rte-danger, #ef4444)',
+} as const;
+
+/** Pill tones, picked by hashing the pill's text. */
+const PILL_TONES = [
+  { bg: 'var(--rte-pill-1-bg, #ffedd5)', fg: 'var(--rte-pill-1-fg, #9a3412)' },
+  { bg: 'var(--rte-pill-2-bg, #dbeafe)', fg: 'var(--rte-pill-2-fg, #1d4ed8)' },
+  { bg: 'var(--rte-pill-3-bg, #d1fae5)', fg: 'var(--rte-pill-3-fg, #047857)' },
+  { bg: 'var(--rte-pill-4-bg, #f3e8ff)', fg: 'var(--rte-pill-4-fg, #6b21a8)' },
+] as const;
+
 export interface RichTextEditorHandle {
   focus: () => void;
   exec: (command: string, value?: string) => void;
@@ -125,40 +158,40 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       },
       insertTable: () => {
         elRef.current?.focus();
-        const tableHtml = '<table class="border-collapse border border-[#2d2d2d] my-2 w-full"><tbody><tr><td class="border border-[#2d2d2d] p-2">&nbsp;</td><td class="border border-[#2d2d2d] p-2">&nbsp;</td></tr><tr><td class="border border-[#2d2d2d] p-2">&nbsp;</td><td class="border border-[#2d2d2d] p-2">&nbsp;</td></tr></tbody></table>';
-        document.execCommand('insertHTML', false, tableHtml);
+        // No inline styling: the `.rte-root table/td` rules in the <style> block
+        // below own the look, so a table restyles with the token layer.
+        const cell = '<td>&nbsp;</td>';
+        const row = `<tr>${cell}${cell}</tr>`;
+        document.execCommand('insertHTML', false, `<table><tbody>${row}${row}</tbody></table>`);
         emitChange();
       },
       insertPill: (text: string) => {
         elRef.current?.focus();
-        const colors = [
-          { bg: '#ffedd5', text: '#c2410c', border: '#fed7aa' }, // Peach
-          { bg: '#dbeafe', text: '#1d4ed8', border: '#bfdbfe' }, // Blue
-          { bg: '#d1fae5', text: '#047857', border: '#a7f3d0' }, // Green
-          { bg: '#f3e8ff', text: '#6b21a8', border: '#e9d5ff' }  // Purple
-        ];
         const hash = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        const color = colors[hash % colors.length];
-        
-        const pillHtml = `<span class="rte-pill" style="background-color: ${color.bg}; color: ${color.text}; border: 1px solid ${color.border}; padding: 2px 8px; border-radius: 9999px; font-size: 0.8em; font-weight: bold; margin-left: 6px; display: inline-block;" contenteditable="false">${text}</span>&nbsp;`;
+        const tone = PILL_TONES[hash % PILL_TONES.length];
+
+        const pillHtml = `<span class="rte-pill" style="background-color: ${tone.bg}; color: ${tone.fg}; padding: 2px 8px; border-radius: 9999px; font-size: 0.8em; font-weight: 600; margin-left: 6px; display: inline-block;" contenteditable="false">${text}</span>&nbsp;`;
         document.execCommand('insertHTML', false, pillHtml);
         emitChange();
       },
       insertSectionDivider: (styleType = 'wavy') => {
         elRef.current?.focus();
-        let hrHtml = '';
+        // `.rte-v2` marks this as token-driven markup so the legacy-divider
+        // override in the <style> block below skips it.
+        const open = '<div class="rte-divider-container rte-v2" contenteditable="false" style="margin: 20px 0; text-align: center;">';
+        let rule = '';
         if (styleType === 'wavy') {
-          hrHtml = '<div class="rte-divider-container" contenteditable="false" style="margin: 20px 0; text-align: center;"><hr style="border: none; height: 10px; background: repeating-linear-gradient(45deg, #2d2d2d, #2d2d2d 4px, transparent 4px, transparent 8px); opacity: 0.7; border-radius: 4px;" /></div>';
+          rule = `<hr style="border: none; height: 10px; background: repeating-linear-gradient(45deg, ${TOK.line}, ${TOK.line} 4px, transparent 4px, transparent 8px); opacity: 0.55; border-radius: 4px;" />`;
         } else if (styleType === 'gradient') {
-          hrHtml = '<div class="rte-divider-container" contenteditable="false" style="margin: 20px 0;"><hr style="border: none; height: 4px; background: linear-gradient(90deg, #f59e0b, #ec4899, #3b82f6, #10b981); border-radius: 4px;" /></div>';
+          rule = `<hr style="border: none; height: 4px; background: linear-gradient(90deg, ${TOK.grad1}, ${TOK.grad2}, ${TOK.grad3}, ${TOK.grad4}); border-radius: 4px;" />`;
         } else if (styleType === 'vintage') {
-          hrHtml = '<div class="rte-divider-container" contenteditable="false" style="margin: 20px 0; text-align: center;"><hr style="border: none; border-top: 2px double #2d2d2d; border-bottom: 1px solid #2d2d2d; height: 5px;" /></div>';
+          rule = `<hr style="border: none; border-top: 2px double ${TOK.line}; border-bottom: 1px solid ${TOK.line}; height: 5px;" />`;
         } else if (styleType === 'stitched') {
-          hrHtml = '<div class="rte-divider-container" contenteditable="false" style="margin: 20px 0;"><hr style="border: none; border-top: 3px dotted #b45309;" /></div>';
+          rule = `<hr style="border: none; border-top: 3px dotted ${TOK.accent};" />`;
         } else {
-          hrHtml = '<div class="rte-divider-container" contenteditable="false" style="margin: 20px 0;"><hr style="border: none; border-top: 3px dashed #2d2d2d;" /></div>';
+          rule = `<hr style="border: none; border-top: 3px dashed ${TOK.line};" />`;
         }
-        document.execCommand('insertHTML', false, hrHtml);
+        document.execCommand('insertHTML', false, `${open}${rule}</div>`);
         emitChange();
       },
       getEl: () => elRef.current,
@@ -174,7 +207,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         const newTr = document.createElement('tr');
         for (let i = 0; i < numCols; i++) {
           const newTd = document.createElement('td');
-          newTd.className = "border border-[#2d2d2d] p-2";
+          // Unstyled on purpose — `.rte-root td` in the <style> block owns the look.
           newTd.innerHTML = "&nbsp;";
           newTr.appendChild(newTd);
         }
@@ -206,7 +239,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         const rows = Array.from(table.rows);
         rows.forEach(r => {
           const newTd = document.createElement('td');
-          newTd.className = "border border-[#2d2d2d] p-2";
+          // Unstyled on purpose — `.rte-root td` in the <style> block owns the look.
           newTd.innerHTML = "&nbsp;";
           
           const targetCell = r.cells[cellIndex];
@@ -507,14 +540,14 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
                 compressImage(rawSrc, 800, 800, (compressedSrc) => {
                   const cardId = 'img-card-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
                   const imageCardHtml = `
-                    <div id="${cardId}" class="rte-image-card" contenteditable="false" draggable="true" style="display: inline-block; vertical-align: top; margin: 10px; border: 2px solid #2d2d2d; box-shadow: 3px 3px 0px rgba(45,45,45,1); border-radius: 8px; background: #fff; width: 260px; max-width: 100%; padding: 6px; box-sizing: border-box; position: relative;">
-                      <div class="rte-image-wrapper" style="position: relative; width: 100%; height: auto; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 4px; display: block; background: #f8fafc; cursor: pointer;">
-                        <img src="${compressedSrc}" class="rte-image-img" style="width: 100%; height: auto; max-height: 380px; object-fit: contain; display: block; border-radius: 4px;" title="Click to view & edit notes" />
-                        <div class="rte-image-preview-badge" style="position: absolute; top: 4px; left: 4px; background: rgba(45,45,45,0.75); color: #fff; font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px; backdrop-filter: blur(2px); pointer-events: none; display: flex; align-items: center; gap: 4px;">🔍 Preview</div>
-                        <div class="rte-resize-handle" style="position: absolute; bottom: 2px; right: 2px; width: 10px; height: 10px; cursor: se-resize; background: #2d2d2d; border: 1px solid #fff; border-radius: 2px; z-index: 20;"></div>
+                    <div id="${cardId}" class="rte-image-card" contenteditable="false" draggable="true" style="display: inline-block; vertical-align: top; margin: 10px; border: 1px solid ${TOK.imgBorder}; box-shadow: ${TOK.imgShadow}; border-radius: 12px; background: ${TOK.imgSurface}; width: 260px; max-width: 100%; padding: 6px; box-sizing: border-box; position: relative;">
+                      <div class="rte-image-wrapper" style="position: relative; width: 100%; height: auto; overflow: hidden; border: 1px solid ${TOK.imgBorder}; border-radius: 8px; display: block; background: ${TOK.imgSurface}; cursor: pointer;">
+                        <img src="${compressedSrc}" class="rte-image-img" style="width: 100%; height: auto; max-height: 380px; object-fit: contain; display: block; border-radius: 8px;" title="Click to view & edit notes" />
+                        <div class="rte-image-preview-badge" style="position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.5); color: #fff; font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 999px; backdrop-filter: blur(2px); pointer-events: none; display: flex; align-items: center; gap: 4px;">Preview</div>
+                        <div class="rte-resize-handle" style="position: absolute; bottom: 3px; right: 3px; width: 10px; height: 10px; cursor: se-resize; background: ${TOK.ink}; border: 1px solid #fff; border-radius: 2px; z-index: 20;"></div>
                       </div>
-                      <button class="rte-image-delete" style="position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; background: #ef4444; color: #fff; border: 1.5px solid #2d2d2d; font-size: 11px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; z-index: 20; box-shadow: 1px 1px 0px #2d2d2d;">×</button>
-                      <div class="rte-image-caption" contenteditable="true" style="margin-top: 6px; font-family: var(--font-kalam, inherit); font-size: 12px; color: #4b5563; min-height: 20px; outline: none; padding: 2px 4px; border: 1px dashed transparent; border-radius: 4px;" placeholder="Write about this image..."></div>
+                      <button class="rte-image-delete" style="position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; background: ${TOK.danger}; color: #fff; border: none; font-size: 11px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; z-index: 20; box-shadow: ${TOK.imgShadow};">×</button>
+                      <div class="rte-image-caption" contenteditable="true" style="margin-top: 6px; font-size: 12px; color: ${TOK.ink}; min-height: 20px; outline: none; padding: 2px 4px; border-radius: 4px;" placeholder="Write about this image..."></div>
                     </div>&nbsp;
                   `;
                   elRef.current?.focus();
@@ -621,30 +654,32 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         <style jsx global>{`
           .rte-root:empty:before {
             content: attr(data-placeholder);
-            color: #94a3b8;
+            color: var(--rte-ink-muted, #a3a29e);
             pointer-events: none;
           }
+          /* Headings inherit the body font by default so the editor follows
+             whichever face Style Lab picked; --rte-heading-font can override. */
           .rte-root h1 {
-            font-family: var(--font-caveat, inherit);
+            font-family: var(--rte-heading-font, inherit);
             font-size: 1.6em;
             font-weight: 700;
-            color: #451a03;
+            color: var(--rte-h1-ink, #1c1c1a);
             margin: 0.7em 0 0.3em;
           }
           .rte-root h2 {
-            font-family: var(--font-caveat, inherit);
+            font-family: var(--rte-heading-font, inherit);
             font-size: 1.35em;
             font-weight: 700;
-            color: #92400e;
+            color: var(--rte-h2-ink, #292524);
             margin: 0.6em 0 0.25em;
-            border-bottom: 1px solid rgba(45, 45, 45, 0.1);
+            border-bottom: 1px solid var(--rte-border, #e8e8e5);
             padding-bottom: 0.15em;
           }
           .rte-root h3 {
-            font-family: var(--font-caveat, inherit);
+            font-family: var(--rte-heading-font, inherit);
             font-size: 1.15em;
             font-weight: 700;
-            color: #92400e;
+            color: var(--rte-h2-ink, #292524);
             margin: 0.5em 0 0.2em;
           }
           .rte-root ul,
@@ -663,12 +698,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             padding-left: 0.15em;
           }
           .rte-root li::marker {
-            color: #b45309;
+            color: var(--rte-marker, #a3a29e);
           }
           .rte-root mark {
             padding: 1px 5px;
             border-radius: 4px;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
           }
           /* Checklist items render as real checkboxes via ::before,
              matching macOS Notes — checked items get a strike + dim. */
@@ -686,15 +720,15 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             top: 0.2em;
             width: 15px;
             height: 15px;
-            border: 2px solid #94a3b8;
+            border: 1.5px solid var(--rte-hairline-strong, #dedcd8);
             border-radius: 4px;
-            background: #fff;
+            background: var(--rte-surface, #ffffff);
             cursor: pointer;
             transition: background 0.12s, border-color 0.12s;
           }
           .rte-root li.rte-checkbox-item[data-checked='true']::before {
-            background: #2d2d2d;
-            border-color: #2d2d2d;
+            background: var(--rte-ink, #1c1c1a);
+            border-color: var(--rte-ink, #1c1c1a);
           }
           .rte-root li.rte-checkbox-item[data-checked='true']::after {
             content: '';
@@ -709,42 +743,76 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             pointer-events: none;
           }
           .rte-root li.rte-checkbox-item[data-checked='true'] {
-            color: #94a3b8;
+            color: var(--rte-ink-muted, #a3a29e);
             text-decoration: line-through;
-            text-decoration-color: #cbd5e1;
+            text-decoration-color: var(--rte-hairline-strong, #dedcd8);
           }
           .rte-root span.rte-pill {
-            font-family: var(--font-kalam, inherit);
-            box-shadow: 1px 1px 0px rgba(45, 45, 45, 1);
+            box-shadow: var(--rte-pill-shadow, none);
             user-select: none;
+            /* Pills saved before the redesign carry an inline pastel border. */
+            border: none !important;
           }
           .rte-root table {
             border-collapse: collapse;
-            border: 2px solid #2d2d2d;
+            border: 1px solid var(--rte-border, #e8e8e5);
             margin: 10px 0;
             width: 100%;
           }
           .rte-root th,
           .rte-root td {
-            border: 1px solid #2d2d2d;
+            border: 1px solid var(--rte-border, #e8e8e5);
             padding: 8px;
             min-width: 40px;
           }
           .rte-root th {
-            background-color: #f5f0e6;
-            font-weight: bold;
+            background-color: var(--rte-table-head, #fafaf9);
+            font-weight: 600;
+          }
+          /* Legacy tables carry border-[#2d2d2d] utility classes rather than
+             inline styles, so the rules above already win on specificity — no
+             !important needed, which keeps inline cell fills working. */
+
+          /* Dividers written before the redesign hard-coded #2d2d2d inline.
+             New ones are tagged .rte-v2 so this only rewrites the old ones and
+             leaves the stitched variant's accent colour alone. */
+          .rte-root .rte-divider-container:not(.rte-v2) hr {
+            border-color: var(--rte-divider, #d6d3d1) !important;
           }
           .rte-root .rte-image-card {
-            font-family: var(--font-kalam, inherit);
             user-select: none;
             width: 280px !important;
             max-width: 100% !important;
             height: auto !important;
+            /* !important so image cards persisted with the old hard border and
+               offset shadow follow the token layer too. */
+            border: 1px solid var(--rte-border, #e8e8e5) !important;
+            border-radius: 12px !important;
+            background: var(--rte-surface, #ffffff) !important;
+            box-shadow: var(--rte-shadow, 0 1px 3px rgba(15, 23, 42, 0.06)) !important;
           }
           .rte-root .rte-image-wrapper {
             width: 100% !important;
             height: auto !important;
             max-height: none !important;
+            border: 1px solid var(--rte-border, #e8e8e5) !important;
+            border-radius: 8px !important;
+            background: var(--rte-surface, #ffffff) !important;
+          }
+          .rte-root .rte-resize-handle {
+            background: var(--rte-ink, #1c1c1a) !important;
+          }
+          /* Same story for the two chrome bits on legacy image cards. */
+          .rte-root .rte-image-delete {
+            border: none !important;
+            background: var(--rte-danger, #ef4444) !important;
+            box-shadow: var(--rte-shadow, 0 1px 3px rgba(15, 23, 42, 0.06)) !important;
+            font-weight: 500 !important;
+          }
+          .rte-root .rte-image-preview-badge {
+            background: rgba(0, 0, 0, 0.5) !important;
+            border-radius: 999px !important;
+            font-weight: 500 !important;
           }
           .rte-root .rte-image-img,
           .rte-root img {
@@ -753,13 +821,19 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             max-height: 420px !important;
             object-fit: contain !important;
             aspect-ratio: auto !important;
+            border-radius: 8px !important;
           }
           .rte-root .rte-image-caption {
             min-height: 20px;
+            /* Legacy captions pinned themselves to Kalam and a slate grey;
+               inherit instead so they follow the editor's font choice. */
+            font-family: inherit !important;
+            color: var(--rte-ink, #1c1c1a) !important;
+            border: none !important;
           }
           .rte-root .rte-image-caption:empty:before {
             content: attr(placeholder);
-            color: #94a3b8;
+            color: var(--rte-ink-muted, #a3a29e);
             pointer-events: none;
             display: block;
           }

@@ -560,3 +560,130 @@ body {
   transition: font-family 0.35s cubic-bezier(0.4, 0, 0.2, 1), font-size 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* ------------------------------------------------------------------ */
+/* Notes Suite design tokens                                          */
+/* Scoped to `.notes-suite` so the hand-drawn journal skin used by the */
+/* rest of the app (`:root` vars, `.journal-*` classes) is untouched.  */
+/* Retune the Notes look here — nothing downstream hard-codes values.  */
+/* ------------------------------------------------------------------ */
+.notes-suite {
+  /* Surfaces */
+  --ns-page: #f6f6f4;
+  --ns-surface: #ffffff;
+  --ns-surface-soft: #fafaf9;
+  --ns-surface-muted: #f4f4f2;
+  --ns-surface-sunken: #fbfbfa;
+
+  /* The only border weight left in the UI: a 1px hairline */
+  --ns-hairline: #ececea;
+  --ns-hairline-strong: #dedcd8;
+
+  /* Ink */
+  --ns-ink: #1c1c1a;
+  --ns-ink-soft: #57534e;
+  --ns-ink-muted: #a3a29e;
+
+  /* Accent — amber, used only for selection and the breadcrumb */
+  --ns-accent: #b4530a;
+  --ns-accent-soft: #fdf6ec;
+  --ns-accent-line: #e9a23b;
+  --ns-accent-ink: #7c3d08;
+
+  /* Elevation — soft and diffuse, never a hard offset */
+  --ns-shadow-shell: 0 1px 2px rgba(15, 23, 42, 0.04), 0 16px 40px -20px rgba(15, 23, 42, 0.18);
+  --ns-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --ns-shadow-pop: 0 4px 6px -2px rgba(15, 23, 42, 0.06), 0 12px 28px -8px rgba(15, 23, 42, 0.16);
+
+  /* Radius */
+  --ns-radius: 20px;
+  --ns-radius-md: 12px;
+  --ns-radius-sm: 8px;
+
+  /* Highlighter palette */
+  --ns-hl-amber: #ffedd5;
+  --ns-hl-yellow: #fef08a;
+  --ns-hl-green: #d1fae5;
+  --ns-hl-blue: #dbeafe;
+  --ns-hl-pink: #fce7f3;
+  --ns-hl-red: #fecdd3;
+
+  /* Text-colour palette */
+  --ns-fg-default: #1c1c1a;
+  --ns-fg-red: #e11d48;
+  --ns-fg-blue: #2563eb;
+  --ns-fg-green: #16a34a;
+  --ns-fg-purple: #7c3aed;
+
+  /* Tag chip tones — picked by hashing the tag name */
+  --ns-tag-1-bg: #ffedd5;
+  --ns-tag-1-fg: #9a3412;
+  --ns-tag-2-bg: #dbeafe;
+  --ns-tag-2-fg: #1d4ed8;
+  --ns-tag-3-bg: #d1fae5;
+  --ns-tag-3-fg: #047857;
+  --ns-tag-4-bg: #f3e8ff;
+  --ns-tag-4-fg: #6b21a8;
+
+  /* Freeform canvas surfaces (also written into saved canvasData) */
+  --ns-canvas-block: #fffdf7;
+  --ns-canvas-group: #f7f7f5;
+
+  /* Editor body (consumed by RichTextEditor.tsx — both its <style> block and
+     the inline styles it writes into saved note HTML, which is why every value
+     here has to be a plain colour/shadow a `var()` can resolve to). */
+  --rte-ink: #1c1c1a;
+  --rte-ink-muted: #a3a29e;
+  --rte-border: #e8e8e5;
+  --rte-hairline-strong: #dedcd8;
+  --rte-surface: #ffffff;
+  --rte-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --rte-table-head: #fafaf9;
+  --rte-danger: #ef4444;
+
+  /* Headings inside the editor body. --rte-heading-font is `inherit` so
+     headings follow whichever face Style Lab applied; set it to
+     var(--font-caveat) here to pin them to a display face instead. */
+  --rte-heading-font: inherit;
+  --rte-h1-ink: #1c1c1a;
+  --rte-h2-ink: #292524;
+  --rte-marker: #a3a29e;
+
+  /* Pills — tone is picked by hashing the pill's text */
+  --rte-pill-shadow: none;
+  --rte-pill-1-bg: #ffedd5;
+  --rte-pill-1-fg: #9a3412;
+  --rte-pill-2-bg: #dbeafe;
+  --rte-pill-2-fg: #1d4ed8;
+  --rte-pill-3-bg: #d1fae5;
+  --rte-pill-3-fg: #047857;
+  --rte-pill-4-bg: #f3e8ff;
+  --rte-pill-4-fg: #6b21a8;
+
+  /* Section dividers */
+  --rte-divider: #d6d3d1;
+  --rte-divider-accent: #e9a23b;
+  --rte-grad-1: #f59e0b;
+  --rte-grad-2: #ec4899;
+  --rte-grad-3: #3b82f6;
+  --rte-grad-4: #10b981;
+}
+
+/* Quiet scrollbars inside the Notes Suite */
+.notes-suite ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.notes-suite ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.notes-suite ::-webkit-scrollbar-thumb {
+  background: var(--ns-hairline-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.notes-suite ::-webkit-scrollbar-thumb:hover {
+  background: var(--ns-ink-muted);
+  background-clip: content-box;
+}
+

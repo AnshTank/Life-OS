@@ -11,7 +11,9 @@ import {
   Palette, ChevronLeft, ChevronRight, CalendarDays, Layers,
   Star, Command, Sun, Moon, FileArchive, Keyboard, X, GripVertical,
   List, ListOrdered, ListChecks, Indent, Outdent,
-  Save, Undo2, Redo2, Table, Maximize2, Minimize2, User, FolderPlus
+  Save, Undo2, Redo2, Table, Maximize2, Minimize2, User, FolderPlus,
+  Settings, ChevronDown, Pencil, Underline, Strikethrough, Clock,
+  Share2, HardDrive, Highlighter, Image as ImageIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useApp } from '@/context/AppContext';
 import { toast } from 'sonner';
 import { RichTextEditor, RichTextEditorHandle, htmlToPlainText, htmlToMarkdown, migrateMarkdownToHtml } from './RichTextEditor';
+import { cn } from '@/lib/utils';
 
 interface Note {
   id: string;
@@ -105,6 +108,125 @@ const LIST_DEFAULT_WIDTH = 320;
 const LIST_MIN_WIDTH = 220;
 const LIST_MAX_WIDTH = 520;
 
+// Notional quota for the sidebar storage meter. Notes have no size column in
+// the schema, so usage is derived from the loaded note payloads instead.
+const STORAGE_QUOTA_BYTES = 1024 * 1024 * 1024;
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+// Compact relative timestamps: "just now", "2 min ago", "1 hr ago", "2d ago", "3w ago".
+function formatRelativeTime(input: string | number | Date): string {
+  const then = new Date(input).getTime();
+  if (Number.isNaN(then)) return '';
+  const diff = Date.now() - then;
+  if (diff < 45 * 1000) return 'just now';
+
+  const mins = Math.round(diff / 60000);
+  if (mins < 60) return `${mins} min ago`;
+
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hr${hrs === 1 ? '' : 's'} ago`;
+
+  const days = Math.round(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+
+  const weeks = Math.round(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+
+  const months = Math.round(days / 30);
+  if (months < 12) return `${months}mo ago`;
+
+  return `${Math.round(days / 365)}y ago`;
+}
+
+// Shared class recipes so the borderless look stays consistent across the page.
+// Every colour/shadow resolves from the `.notes-suite` token scope in globals.css.
+const NS = {
+  iconBtn:
+    'h-9 w-9 rounded-full text-[var(--ns-ink-muted)] hover:text-[var(--ns-ink)] hover:bg-black/[0.04] transition-colors',
+  iconBtnSm:
+    'h-7 w-7 rounded-lg text-[var(--ns-ink-soft)] hover:text-[var(--ns-ink)] hover:bg-black/[0.05] transition-colors',
+  chip:
+    'inline-flex items-center gap-1.5 h-8 px-3 rounded-full bg-[var(--ns-surface-muted)] text-[12px] text-[var(--ns-ink-soft)] hover:bg-black/[0.06] transition-colors',
+  softInput:
+    'bg-[var(--ns-surface-muted)] border-0 rounded-lg text-[13px] text-[var(--ns-ink)] placeholder:text-[var(--ns-ink-muted)] focus-visible:ring-1 focus-visible:ring-[var(--ns-hairline-strong)] focus-visible:ring-offset-0',
+  label:
+    'text-[10.5px] font-semibold uppercase tracking-[0.09em] text-[var(--ns-ink-muted)]',
+  inkBtn:
+    'bg-[var(--ns-ink)] text-white hover:bg-[var(--ns-ink)]/90 rounded-full text-[12.5px] font-medium shadow-none',
+  divider: 'w-px h-4 bg-[var(--ns-hairline)] shrink-0',
+  toolBtn:
+    'h-7 w-7 rounded-[var(--ns-radius-sm)] text-[var(--ns-ink-soft)] hover:text-[var(--ns-ink)] hover:bg-black/[0.05] transition-colors',
+  toolBtnOn:
+    'bg-[var(--ns-ink)] text-white hover:bg-[var(--ns-ink)] hover:text-white',
+  toolChip:
+    'h-7 gap-1.5 px-2.5 rounded-full text-[12px] text-[var(--ns-ink-soft)] hover:text-[var(--ns-ink)] hover:bg-black/[0.05] shadow-none transition-colors',
+  tableChip:
+    'h-6 px-2 rounded-md text-[11px] font-normal text-[var(--ns-ink-soft)] bg-[var(--ns-surface)] hover:bg-[var(--ns-surface)] hover:text-[var(--ns-ink)] shadow-[var(--ns-shadow-card)] transition-colors',
+} as const;
+
+// Editor palettes. The swatch dot is painted straight from the CSS token, and
+// the value handed to document.execCommand is read back out of the same token at
+// click time (execCommand can't consume a `var()` string), so retuning a colour
+// means editing globals.css — nothing here holds the source of truth.
+function readNsToken(name: string, fallback: string): string {
+  if (typeof window === 'undefined') return fallback;
+  const scope = document.querySelector('.notes-suite');
+  if (!scope) return fallback;
+  const value = getComputedStyle(scope).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+const HIGHLIGHT_SWATCHES = [
+  { label: 'Red', token: '--ns-hl-red', fallback: '#fecdd3' },
+  { label: 'Yellow', token: '--ns-hl-yellow', fallback: '#fef08a' },
+  { label: 'Green', token: '--ns-hl-green', fallback: '#d1fae5' },
+  { label: 'Blue', token: '--ns-hl-blue', fallback: '#dbeafe' },
+  { label: 'Pink', token: '--ns-hl-pink', fallback: '#fce7f3' },
+  { label: 'Amber', token: '--ns-hl-amber', fallback: '#ffedd5' },
+] as const;
+
+const TEXT_SWATCHES = [
+  { label: 'Default', token: '--ns-fg-default', fallback: '#1c1c1a', onDark: false },
+  { label: 'Red', token: '--ns-fg-red', fallback: '#e11d48', onDark: true },
+  { label: 'Blue', token: '--ns-fg-blue', fallback: '#2563eb', onDark: true },
+  { label: 'Green', token: '--ns-fg-green', fallback: '#16a34a', onDark: true },
+  { label: 'Purple', token: '--ns-fg-purple', fallback: '#7c3aed', onDark: true },
+] as const;
+
+// Tag chips pick a tone by hashing the tag name. Values live in the token layer;
+// `var()` resolves fine inside an inline style attribute, so no read-back needed.
+const TAG_PALETTE = [
+  { bg: '--ns-tag-1-bg', bgFallback: '#ffedd5', fg: '--ns-tag-1-fg', fgFallback: '#9a3412' },
+  { bg: '--ns-tag-2-bg', bgFallback: '#dbeafe', fg: '--ns-tag-2-fg', fgFallback: '#1d4ed8' },
+  { bg: '--ns-tag-3-bg', bgFallback: '#d1fae5', fg: '--ns-tag-3-fg', fgFallback: '#047857' },
+  { bg: '--ns-tag-4-bg', bgFallback: '#f3e8ff', fg: '--ns-tag-4-fg', fgFallback: '#6b21a8' },
+] as const;
+
+// Canvas surfaces. These get persisted into `Note.canvasData`, and `var()`
+// resolves inside an inline style attribute, so canvases saved from here follow
+// the token layer. `CANVAS_LEGACY_FILLS` are the literals older canvases were
+// saved with — remapped on render so they don't stay sticky-note yellow.
+const CANVAS_BLOCK_FILL = 'var(--ns-canvas-block, #fffdf7)';
+const CANVAS_GROUP_FILL = 'var(--ns-canvas-group, #f7f7f5)';
+const CANVAS_LEGACY_FILLS: Record<string, string> = {
+  '#fff9c4': CANVAS_BLOCK_FILL,
+  '#f1f5f9': CANVAS_GROUP_FILL,
+};
+
+const DIVIDER_STYLES = [
+  { id: 'wavy', label: 'Wavy Line', glyph: '〰️' },
+  { id: 'dashed', label: 'Dashed Line', glyph: '---' },
+  { id: 'gradient', label: 'Gradient Glow', glyph: '✨' },
+  { id: 'vintage', label: 'Vintage Double', glyph: '═' },
+  { id: 'stitched', label: 'Stitched Dotted', glyph: '···' },
+] as const;
+
 export default function FullProjectNotesPage() {
   const [isFocusMode, setIsFocusMode] = useState(false);
   const { id: projectId } = useParams();
@@ -153,8 +275,16 @@ export default function FullProjectNotesPage() {
   // Section Divider Menu state
   const [showDividerMenu, setShowDividerMenu] = useState(false);
 
+  // "New Note" split-button template dropdown
+  const [showNewNoteMenu, setShowNewNoteMenu] = useState(false);
+
+  // Timestamp of the last successful persist, shown as "Last saved: …"
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  // Ticks every 30s so relative timestamps stay honest without a save.
+  const [, setClockTick] = useState(0);
+
   // Font family & size states
-  const [editorFont, setEditorFont] = useState<string>('kalam');
+  const [editorFont, setEditorFont] = useState<string>('sans');
   const [editorFontSize, setEditorFontSize] = useState<number>(16);
 
   // Rich text editor ref + live "what's active at the caret" state,
@@ -286,15 +416,17 @@ export default function FullProjectNotesPage() {
     return notes.find(n => n.id === selectedNoteId) || null;
   }, [notes, selectedNoteId]);
 
-  // Chronological grouping: Today, This Week, Older
+  // Chronological grouping: Today, This Week, This Month, Earlier
   const chronologicalGroups = useMemo(() => {
     const today: Note[] = [];
     const thisWeek: Note[] = [];
-    const older: Note[] = [];
+    const thisMonth: Note[] = [];
+    const earlier: Note[] = [];
 
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfThisWeek = new Date(startOfToday.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     filteredNotes.forEach(n => {
       const noteDate = new Date(n.createdAt);
@@ -302,17 +434,39 @@ export default function FullProjectNotesPage() {
         today.push(n);
       } else if (noteDate >= startOfThisWeek) {
         thisWeek.push(n);
+      } else if (noteDate >= startOfThisMonth) {
+        thisMonth.push(n);
       } else {
-        older.push(n);
+        earlier.push(n);
       }
     });
 
     return [
       { name: 'Today', notes: today },
       { name: 'This Week', notes: thisWeek },
-      { name: 'Older', notes: older }
+      { name: 'This Month', notes: thisMonth },
+      { name: 'Earlier', notes: earlier }
     ].filter(group => group.notes.length > 0);
   }, [filteredNotes]);
+
+  // Storage meter for the sidebar. Notes have no size column in the schema, so
+  // usage is derived from the byte length of the loaded note payloads.
+  const storageUsage = useMemo(() => {
+    const bytes = notes.reduce((total, n) => {
+      const payload = [n.title, n.content, n.originalContent, n.refinedContent, n.canvasData]
+        .filter(Boolean)
+        .join('');
+      return total + new Blob([payload]).size;
+    }, 0);
+    const pct = (bytes / STORAGE_QUOTA_BYTES) * 100;
+    return {
+      bytes,
+      used: formatBytes(bytes),
+      quota: formatBytes(STORAGE_QUOTA_BYTES),
+      percent: pct,
+      percentLabel: pct < 0.1 && pct > 0 ? '<0.1%' : `${pct.toFixed(1)}%`,
+    };
+  }, [notes]);
 
   const notesByDay = useMemo(() => {
     const groups: Record<string, Note[]> = {};
@@ -444,6 +598,7 @@ export default function FullProjectNotesPage() {
             refinedContent: data.refinedContent,
             canvasData: data.canvasData
           } : n));
+          setLastSavedAt(new Date());
         }
       } catch (err) {
         console.error('Failed to auto-save note:', err);
@@ -570,6 +725,7 @@ export default function FullProjectNotesPage() {
         if (updatedFields.content !== undefined) lastSavedState.current.content = updatedFields.content;
         if (updatedFields.folder !== undefined) lastSavedState.current.folder = updatedFields.folder;
         if (updatedFields.section !== undefined) lastSavedState.current.section = updatedFields.section || '';
+        setLastSavedAt(new Date());
       }
     } catch (err) {
       console.error(err);
@@ -823,6 +979,20 @@ export default function FullProjectNotesPage() {
     toast.success('Markdown file downloaded! 📥');
   };
 
+  // Share = copy the note as portable markdown to the clipboard.
+  const shareNote = async () => {
+    if (!selectedNote) return;
+    const markdownBody = htmlToMarkdown(editContent);
+    const payload = `# ${editTitle}\n\n${markdownBody}`;
+    try {
+      await navigator.clipboard.writeText(payload);
+      toast.success('Note copied as markdown — ready to paste anywhere 📋');
+    } catch (err) {
+      console.error('Clipboard write failed:', err);
+      toast.error('Could not access the clipboard. Try the download button instead.');
+    }
+  };
+
   // Export every note in this project as a .zip of markdown files.
   // JSZip is loaded from a CDN on demand so the page bundle stays lean.
   const exportAllNotes = async () => {
@@ -992,7 +1162,7 @@ export default function FullProjectNotesPage() {
       width: 220,
       height: 120,
       content: text,
-      color: '#fff9c4'
+      color: CANVAS_BLOCK_FILL
     };
     const updated = [...canvasBlocks, newBlock];
     setCanvasBlocks(updated);
@@ -1039,7 +1209,7 @@ export default function FullProjectNotesPage() {
     const newGroup: CanvasGroup = {
       id: 'group-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
       title: 'Grouped Section ' + (canvasGroups.length + 1),
-      color: '#f1f5f9',
+      color: CANVAS_GROUP_FILL,
       x: Math.max(0, minX),
       y: Math.max(0, minY),
       width: Math.max(260, maxX - minX),
@@ -1151,6 +1321,8 @@ export default function FullProjectNotesPage() {
         if (isQuickSwitcherOpen) setIsQuickSwitcherOpen(false);
         if (isTypographyOpen) setIsTypographyOpen(false);
         if (isShortcutsOpen) setIsShortcutsOpen(false);
+        if (showNewNoteMenu) setShowNewNoteMenu(false);
+        if (showDividerMenu) setShowDividerMenu(false);
         return;
       }
 
@@ -1180,7 +1352,26 @@ export default function FullProjectNotesPage() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isQuickSwitcherOpen, isTypographyOpen, isShortcutsOpen, selectedNoteId, editTitle, editContent, editFolder, editSection, isFocusMode]);
+  }, [isQuickSwitcherOpen, isTypographyOpen, isShortcutsOpen, showNewNoteMenu, showDividerMenu, selectedNoteId, editTitle, editContent, editFolder, editSection, isFocusMode]);
+
+  // Keep "2 min ago" style timestamps honest without re-rendering the world
+  useEffect(() => {
+    const interval = setInterval(() => setClockTick(tick => tick + 1), 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Click anywhere else to dismiss the popover menus
+  useEffect(() => {
+    if (!showNewNoteMenu && !showDividerMenu) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-ns-menu]')) return;
+      setShowNewNoteMenu(false);
+      setShowDividerMenu(false);
+    };
+    window.addEventListener('mousedown', handlePointerDown);
+    return () => window.removeEventListener('mousedown', handlePointerDown);
+  }, [showNewNoteMenu, showDividerMenu]);
 
   // Lock body scroll in Focus Mode
   useEffect(() => {
@@ -1204,209 +1395,264 @@ export default function FullProjectNotesPage() {
 
   if (isContextLoading || isPageLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#fefdfb]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#2d2d2d]"></div>
+      <div className="notes-suite flex items-center justify-center min-h-screen bg-[var(--ns-page)]">
+        <div className="animate-spin rounded-full h-10 w-10 border-2 border-[var(--ns-hairline-strong)] border-t-[var(--ns-ink)]" />
       </div>
     );
   }
 
   if (!project) {
     return (
-      <div className="min-h-screen bg-[#fefdfb] flex flex-col items-center justify-center p-8">
-        <h2 className="font-caveat text-3xl font-bold text-[#2d2d2d] mb-4">Project Not Found</h2>
-        <Button onClick={() => router.push('/projects')} className="journal-btn-primary">Back to Projects</Button>
+      <div className="notes-suite min-h-screen bg-[var(--ns-page)] flex flex-col items-center justify-center p-8">
+        <h2 className="font-sans text-[20px] font-semibold text-[var(--ns-ink)] mb-4">Project Not Found</h2>
+        <Button onClick={() => router.push('/projects')} className={cn(NS.inkBtn, 'h-9 px-4')}>Back to Projects</Button>
       </div>
     );
   }
 
   return (
-    <div className="h-screen bg-[#fefdfb] lg:pt-16 flex flex-col relative overflow-hidden">
+    <div className="notes-suite h-screen bg-[var(--ns-page)] lg:pt-16 flex flex-col relative overflow-hidden font-sans">
       <div className="max-w-full mx-auto w-full flex-1 flex flex-col space-y-4 h-full min-h-0 px-4 pb-4">
 
-        {/* Navigation & Header */}
+        {/* Navigation & Header — slots into the gap inside the fixed global top
+            bar, between the "Soul Sync" logo and the bell/avatar cluster. */}
         {!isFocusMode && (
-          <div className="lg:absolute lg:top-[20px] lg:left-[140px] lg:right-[145px] lg:z-[10005] lg:bg-transparent lg:px-0 lg:py-0 lg:border-0 lg:shadow-none flex max-w-full flex-col lg:flex-row lg:items-center justify-between pb-2 border-b border-[#2d2d2d]/10 lg:border-b-0 gap-4">
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" className="font-kalam text-slate-500 hover:text-[#2d2d2d]" asChild>
+          <div className="lg:absolute lg:top-[20px] lg:left-[140px] lg:right-[145px] lg:z-[10005] lg:bg-transparent lg:px-0 lg:py-0 lg:border-0 lg:shadow-none flex max-w-full flex-col lg:flex-row lg:items-center justify-between pb-2 border-b border-[var(--ns-hairline)] lg:border-b-0 gap-4">
+            <div className="flex items-center gap-2 min-w-0">
+              <Button variant="ghost" size="icon" className={NS.iconBtn} title="Back to project" asChild>
                 <Link href={`/projects/${project.id}`}>
-                  <ArrowLeft className="w-4 h-4 mr-2" /> Back to Project
+                  <ArrowLeft className="w-4 h-4" />
                 </Link>
               </Button>
-              <h1 className="font-caveat text-3xl font-bold text-[#2d2d2d] truncate">
-                {project.title} / <span className="text-amber-700">Notes Suite</span>
+              <h1 className="text-[14px] font-medium text-[var(--ns-ink-soft)] truncate">
+                {project.title} <span className="text-[var(--ns-ink-muted)] mx-1">/</span>
+                <span className="text-[var(--ns-accent)] font-semibold">Notes Suite</span>
               </h1>
             </div>
 
-            <div className="flex items-center gap-3">
-              <Button
+            <div className="flex items-center gap-2">
+              {/* Search pill — opens the quick switcher (⌘K) */}
+              <button
                 onClick={() => setIsQuickSwitcherOpen(true)}
-                variant="ghost"
-                className="font-kalam text-xs h-9 gap-2 border-2 border-[#2d2d2d]/10 bg-white hover:bg-slate-50 rounded-xl text-slate-500 hidden sm:flex"
-                title="Quick switcher"
+                className="hidden sm:flex items-center gap-2 h-9 w-[220px] px-3.5 rounded-full bg-[var(--ns-surface)] shadow-[var(--ns-shadow-card)] text-[13px] text-[var(--ns-ink-muted)] hover:shadow-[var(--ns-shadow-pop)] transition-shadow"
+                title="Search notes (⌘K)"
               >
-                <Search className="w-3.5 h-3.5" /> Jump to note
-                <kbd className="flex items-center gap-0.5 text-[10px] bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 text-slate-400 ml-1">
+                <Search className="w-3.5 h-3.5 shrink-0" />
+                <span className="flex-1 text-left">Search notes...</span>
+                <kbd className="flex items-center gap-0.5 text-[10px] bg-[var(--ns-surface-muted)] rounded px-1.5 py-0.5 text-[var(--ns-ink-muted)]">
                   <Command className="w-2.5 h-2.5" />K
                 </kbd>
-              </Button>
+              </button>
 
               <Button
                 onClick={exportAllNotes}
                 disabled={isExporting}
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 border-2 border-[#2d2d2d]/10 bg-white hover:bg-slate-50 rounded-xl text-slate-500"
+                className={NS.iconBtn}
                 title="Export all notes as .zip"
               >
-                {isExporting ? <div className="w-4 h-4 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" /> : <FileArchive className="w-4 h-4" />}
+                {isExporting ? <div className="w-4 h-4 rounded-full border-2 border-[var(--ns-accent-line)] border-t-transparent animate-spin" /> : <FileArchive className="w-4 h-4" />}
               </Button>
 
               <Button
                 onClick={() => setIsShortcutsOpen(true)}
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 border-2 border-[#2d2d2d]/10 bg-white hover:bg-slate-50 rounded-xl text-slate-500"
+                className={NS.iconBtn}
                 title="Keyboard shortcuts"
               >
                 <Keyboard className="w-4 h-4" />
               </Button>
 
-              {/* View Mode Tabs */}
-              <div className="flex gap-1 bg-[#f5f0e6] p-1 rounded-xl border-2 border-[#2d2d2d] shadow-sm">
-                <Button
-                  onClick={() => setActiveTab('workspace')}
-                  variant={activeTab === 'workspace' ? 'default' : 'ghost'}
-                  className={`font-kalam text-xs h-8 px-3 rounded-lg ${activeTab === 'workspace' ? 'bg-[#2d2d2d] text-white hover:bg-slate-800' : 'text-[#2d2d2d] hover:bg-[#2d2d2d]/10'}`}
-                >
-                  Workspace
-                </Button>
-                <Button
-                  onClick={() => setActiveTab('timeline')}
-                  variant={activeTab === 'timeline' ? 'default' : 'ghost'}
-                  className={`font-kalam text-xs h-8 px-3 rounded-lg ${activeTab === 'timeline' ? 'bg-[#2d2d2d] text-white hover:bg-slate-800' : 'text-[#2d2d2d] hover:bg-[#2d2d2d]/10'}`}
-                >
-                  Daily Timeline
-                </Button>
+              {/* View Mode segmented control */}
+              <div className="flex gap-1 bg-[var(--ns-surface-muted)] p-1 rounded-full">
+                {([['workspace', 'Workspace'], ['timeline', 'Daily Timeline']] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setActiveTab(key)}
+                    className={cn(
+                      'h-7 px-3.5 rounded-full text-[12px] font-medium transition-colors',
+                      activeTab === key
+                        ? 'bg-[var(--ns-ink)] text-white'
+                        : 'text-[var(--ns-ink-soft)] hover:text-[var(--ns-ink)]'
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
 
               <Button
                 onClick={() => setIsFocusMode(prev => !prev)}
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 border-2 border-[#2d2d2d]/10 bg-white hover:bg-slate-50 rounded-xl text-slate-500"
+                className={NS.iconBtn}
                 title={isFocusMode ? "Exit Full Screen (Ctrl+Shift+F)" : "Full Screen Focus (Ctrl+Shift+F)"}
               >
                 {isFocusMode ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
               </Button>
 
-              <Badge className="font-kalam bg-amber-50 text-amber-800 border-2 border-amber-500/20 px-3 py-1 rounded-full text-xs hidden md:inline-flex">
+              {/* Notebook chip */}
+              <button
+                onClick={() => setIsTypographyOpen(true)}
+                className="hidden md:inline-flex items-center gap-1.5 h-8 pl-3 pr-2 rounded-full bg-[var(--ns-accent-soft)] text-[12px] font-medium text-[var(--ns-accent-ink)] hover:brightness-[0.98] transition-all"
+                title="Notebook settings"
+              >
                 Personal Notebook
-              </Badge>
+                <Pencil className="w-3 h-3 opacity-60" />
+                <ChevronDown className="w-3 h-3 opacity-60" />
+              </button>
             </div>
           </div>
         )}
 
-        {isFocusMode && <div className="fixed inset-0 bg-[#fefdfb] z-[19999]" />}
+        {isFocusMode && <div className="fixed inset-0 bg-[var(--ns-page)] z-[19999]" />}
 
         {activeTab === 'workspace' ? (
           /* 3-Column Smart Notes Workspace — widths driven by inline style
              (not Tailwind template-literal classes) so collapse + drag-resize
              both work, and the editor column always fills remaining space. */
           <div className={isFocusMode
-            ? "fixed inset-4 md:inset-6 z-[20000] flex min-h-0 border-2 border-[#2d2d2d] rounded-2xl overflow-hidden bg-white shadow-[6px_6px_0px_rgba(45,45,45,1)]"
-            : "flex-1 flex min-h-0 h-full border-2 border-[#2d2d2d] rounded-2xl overflow-hidden bg-white shadow-[6px_6px_0px_rgba(45,45,45,1)]"
+            ? "fixed inset-4 md:inset-6 z-[20000] flex min-h-0 rounded-[var(--ns-radius)] overflow-hidden bg-[var(--ns-surface)] shadow-[var(--ns-shadow-shell)]"
+            : "flex-1 flex min-h-0 h-full rounded-[var(--ns-radius)] overflow-hidden bg-[var(--ns-surface)] shadow-[var(--ns-shadow-shell)]"
           }>
 
             {/* COLUMN 1: Sidebar Folder Navigation */}
             <div
               style={{ width: isSidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth, flex: '0 0 auto' }}
-              className="bg-[#f5f0e6]/30 border-r-2 border-[#2d2d2d] flex flex-col p-3 relative"
+              className="bg-[var(--ns-surface-soft)] border-r border-[var(--ns-hairline)] flex flex-col p-3 relative"
             >
-              <div className="flex items-center justify-between mb-4">
+              {/* New Note split button + collapse toggle */}
+              <div className="flex items-center gap-1.5 mb-4 shrink-0">
                 {!isSidebarCollapsed ? (
-                  <h2 className="font-caveat text-2xl font-bold text-[#2d2d2d] flex items-center gap-1.5">
-                    <BrainCircuit className="w-5 h-5 text-amber-600" /> Folders
-                  </h2>
+                  <div className="relative flex-1 flex" data-ns-menu>
+                    <button
+                      onClick={() => createNewNote()}
+                      className="flex-1 h-9 flex items-center justify-center gap-1.5 rounded-l-[var(--ns-radius-sm)] bg-[var(--ns-ink)] text-white text-[12.5px] font-medium hover:bg-[var(--ns-ink)]/90 transition-colors"
+                      title="New note (⌘N)"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> New Note
+                    </button>
+                    <span className="w-px bg-white/20 my-1.5" />
+                    <button
+                      onClick={() => setShowNewNoteMenu(p => !p)}
+                      className="w-8 h-9 flex items-center justify-center rounded-r-[var(--ns-radius-sm)] bg-[var(--ns-ink)] text-white hover:bg-[var(--ns-ink)]/90 transition-colors"
+                      title="New note from template"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+
+                    <AnimatePresence>
+                      {showNewNoteMenu && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.14 }}
+                          className="absolute top-full left-0 right-0 mt-1.5 z-30 bg-[var(--ns-surface)] rounded-[var(--ns-radius-md)] shadow-[var(--ns-shadow-pop)] p-1.5"
+                        >
+                          <p className={cn(NS.label, 'px-2 py-1')}>From template</p>
+                          {Object.keys(NOTE_TEMPLATES).map(tpl => (
+                            <button
+                              key={tpl}
+                              onClick={() => { setShowNewNoteMenu(false); createNewNote(tpl); }}
+                              className="w-full text-left text-[12.5px] text-[var(--ns-ink-soft)] hover:text-[var(--ns-ink)] hover:bg-black/[0.04] rounded-[var(--ns-radius-sm)] px-2 py-1.5 flex items-center gap-2 transition-colors"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-[var(--ns-accent-line)]" /> {tpl}
+                            </button>
+                          ))}
+                          <div className="h-px bg-[var(--ns-hairline)] my-1.5" />
+                          <button
+                            onClick={() => { setShowNewNoteMenu(false); handleAddFolder(); }}
+                            className="w-full text-left text-[12.5px] text-[var(--ns-ink-soft)] hover:text-[var(--ns-ink)] hover:bg-black/[0.04] rounded-[var(--ns-radius-sm)] px-2 py-1.5 flex items-center gap-2 transition-colors"
+                          >
+                            <FolderPlus className="w-3.5 h-3.5" /> New folder…
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 ) : (
-                  <span />
-                )}
-                <div className="flex items-center gap-1">
                   <Button
-                    onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                    onClick={() => createNewNote()}
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 border border-[#2d2d2d]/10 rounded-lg bg-white shadow-sm hover:bg-slate-50"
-                    title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+                    className="h-9 w-9 rounded-[var(--ns-radius-sm)] bg-[var(--ns-ink)] text-white hover:bg-[var(--ns-ink)]/90"
+                    title="New note (⌘N)"
                   >
-                    {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                    <Plus className="w-4 h-4" />
                   </Button>
-                  {!isSidebarCollapsed && (
-                    <>
-                      <Button onClick={handleAddFolder} variant="ghost" size="icon" className="h-8 w-8 border border-[#2d2d2d] rounded-lg bg-white shadow-sm hover:translate-y-[-1px] transition-all" title="New folder">
-                        <FolderPlus className="w-4 h-4 text-[#2d2d2d]" />
-                      </Button>
-                      <Button onClick={() => createNewNote()} variant="ghost" size="icon" className="h-8 w-8 border border-[#2d2d2d] rounded-lg bg-white shadow-sm hover:translate-y-[-1px] transition-all" title="New note (⌘N)">
-                        <Plus className="w-4 h-4 text-[#2d2d2d]" />
-                      </Button>
-                    </>
-                  )}
-                </div>
+                )}
+                <Button
+                  onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                  variant="ghost"
+                  size="icon"
+                  className={cn(NS.iconBtnSm, 'shrink-0')}
+                  title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+                >
+                  {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                </Button>
               </div>
 
               {!isSidebarCollapsed && (
-                <button
-                  onClick={() => setFilterTab(p => p === 'pinned' ? 'all' : 'pinned')}
-                  className={`w-full text-left font-kalam text-xs py-2 px-3 rounded-xl border-2 flex items-center gap-2 mb-2 transition-all ${
-                    filterTab === 'pinned'
-                      ? 'bg-amber-100 text-amber-800 border-amber-300'
-                      : 'bg-white text-slate-500 border-[#2d2d2d]/10 hover:border-[#2d2d2d]/30'
-                  }`}
-                >
-                  <Star className={`w-3.5 h-3.5 ${filterTab === 'pinned' ? 'fill-amber-500 text-amber-500' : ''}`} />
-                  Pinned only
-                </button>
+                <div className="flex items-center justify-between mb-1.5 shrink-0">
+                  <span className={NS.label}>Folders</span>
+                  <button
+                    onClick={() => setFilterTab(p => p === 'pinned' ? 'all' : 'pinned')}
+                    className={cn(
+                      'flex items-center gap-1 text-[10.5px] font-medium rounded-full px-2 py-0.5 transition-colors',
+                      filterTab === 'pinned'
+                        ? 'bg-[var(--ns-accent-soft)] text-[var(--ns-accent)]'
+                        : 'text-[var(--ns-ink-muted)] hover:text-[var(--ns-ink-soft)]'
+                    )}
+                    title="Show pinned notes only"
+                  >
+                    <Star className={cn('w-3 h-3', filterTab === 'pinned' && 'fill-[var(--ns-accent-line)] text-[var(--ns-accent-line)]')} />
+                    Pinned
+                  </button>
+                </div>
               )}
 
-              <div className={`space-y-1 pr-1 ${isSidebarCollapsed ? 'flex-1 overflow-y-auto' : 'max-h-[48%] overflow-y-auto border-b border-[#2d2d2d]/10 pb-3 mb-2'}`}>
+              <div className={`space-y-0.5 pr-1 ${isSidebarCollapsed ? 'flex-1 overflow-y-auto' : 'max-h-[42%] overflow-y-auto pb-3 mb-2'}`}>
                 {folders.map(f => {
                   const count = f === 'All'
                     ? notes.filter(n => n.folder !== 'Trash').length
                     : notes.filter(n => n.folder === f).length;
                   const hasTemplate = Boolean(NOTE_TEMPLATES[f]);
+                  const isActive = activeFolder === f;
                   return (
                     <div key={f} className="group relative">
                       <button
                         onClick={() => setActiveFolder(f)}
-                        className={`w-full text-left font-kalam text-sm py-2.5 rounded-xl border-2 flex items-center justify-between transition-all ${
-                          isSidebarCollapsed ? 'px-2 justify-center' : 'px-3'
-                        } ${
-                          activeFolder === f
-                            ? 'bg-[#2d2d2d] text-white border-[#2d2d2d] shadow-sm'
-                            : 'bg-white text-[#2d2d2d] border-[#2d2d2d]/10 hover:border-[#2d2d2d]/30'
-                        }`}
+                        className={cn(
+                          'w-full text-left text-[13px] py-2 rounded-[var(--ns-radius-sm)] flex items-center justify-between transition-colors',
+                          isSidebarCollapsed ? 'px-2 justify-center' : 'px-2.5',
+                          isActive
+                            ? 'bg-[var(--ns-accent-soft)] text-[var(--ns-accent)] font-medium'
+                            : 'text-[var(--ns-ink-soft)] hover:bg-black/[0.03] hover:text-[var(--ns-ink)]'
+                        )}
                         title={f}
                       >
                         <span className="flex items-center gap-2 min-w-0">
-                          <Folder className={`w-4 h-4 shrink-0 ${activeFolder === f ? 'text-amber-300' : 'text-amber-500'}`} />
+                          <Folder className={cn('w-4 h-4 shrink-0', isActive ? 'text-[var(--ns-accent-line)]' : 'text-[var(--ns-ink-muted)]')} />
                           {!isSidebarCollapsed && <span className="truncate">{f}</span>}
                         </span>
                         {!isSidebarCollapsed && (
-                          <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="flex items-center gap-1 shrink-0">
                             {f !== 'All' && f !== 'Trash' && (
                               <span
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleDeleteFolder(f);
                                 }}
-                                className={`p-0.5 rounded transition-all hover:bg-red-500 hover:text-white ${
-                                  activeFolder === f ? 'text-white/60 hover:text-white' : 'text-slate-400 hover:text-white'
-                                }`}
+                                className="p-0.5 rounded-full opacity-0 group-hover:opacity-100 text-[var(--ns-ink-muted)] hover:text-rose-600 transition-all"
                                 title={`Delete folder "${f}"`}
                               >
                                 <X className="w-3 h-3" />
                               </span>
                             )}
-                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold shrink-0 ${activeFolder === f ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 border'}`}>
+                            <span className={cn('text-[11px] tabular-nums', isActive ? 'text-[var(--ns-accent)]' : 'text-[var(--ns-ink-muted)]')}>
                               {count}
                             </span>
                           </div>
@@ -1415,10 +1661,10 @@ export default function FullProjectNotesPage() {
                       {!isSidebarCollapsed && hasTemplate && (
                         <button
                           onClick={(e) => { e.stopPropagation(); createNewNote(f); }}
-                          className="absolute -right-1 top-1/2 -translate-y-1/2 translate-x-full opacity-0 group-hover:opacity-100 group-hover:-translate-x-1 transition-all h-6 w-6 flex items-center justify-center rounded-full bg-amber-500 text-white shadow-md hover:bg-amber-600"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity h-5 w-5 flex items-center justify-center rounded-full bg-[var(--ns-accent-line)] text-white hover:brightness-95"
                           title={`New ${f} note from template`}
                         >
-                          <Plus className="w-3.5 h-3.5" />
+                          <Plus className="w-3 h-3" />
                         </button>
                       )}
                     </div>
@@ -1427,40 +1673,96 @@ export default function FullProjectNotesPage() {
               </div>
 
               {!isSidebarCollapsed && (
-                <div className="flex-1 flex flex-col min-h-0 pt-2">
-                  <h3 className="font-caveat text-xl font-bold text-[#2d2d2d] flex items-center gap-1.5 mb-2 shrink-0">
-                    <FileText className="w-4 h-4 text-amber-600" /> Recent Notes
-                  </h3>
-                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 min-h-[100px]">
+                <div className="flex-1 flex flex-col min-h-0 pt-1">
+                  <span className={cn(NS.label, 'mb-1.5 shrink-0')}>Recent Notes</span>
+                  <div className="flex-1 overflow-y-auto space-y-0.5 pr-1 min-h-[80px]">
                     {recentNotes.length > 0 ? (
                       recentNotes.map(rn => (
                         <button
                           key={rn.id}
                           onClick={() => selectNote(rn)}
-                          className={`w-full text-left font-kalam text-xs p-2 rounded-lg border flex items-center gap-2 transition-all ${
+                          className={cn(
+                            'w-full text-left text-[12.5px] px-2.5 py-2 rounded-[var(--ns-radius-sm)] flex items-center gap-2 transition-colors',
                             selectedNoteId === rn.id
-                              ? 'bg-[#fffacd] border-[#2d2d2d] text-[#2d2d2d] shadow-sm'
-                              : 'bg-white hover:bg-slate-50 text-slate-600 border-[#2d2d2d]/10'
-                          }`}
+                              ? 'bg-[var(--ns-accent-soft)] text-[var(--ns-accent)] font-medium'
+                              : 'text-[var(--ns-ink-soft)] hover:bg-black/[0.03] hover:text-[var(--ns-ink)]'
+                          )}
                         >
-                          <FileText className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          <FileText className={cn('w-3.5 h-3.5 shrink-0', selectedNoteId === rn.id ? 'text-[var(--ns-accent-line)]' : 'text-[var(--ns-ink-muted)]')} />
                           <span className="truncate flex-1">{rn.title || 'Untitled'}</span>
+                          <span className="text-[10.5px] text-[var(--ns-ink-muted)] shrink-0">{formatRelativeTime(rn.updatedAt)}</span>
                         </button>
                       ))
                     ) : (
-                      <p className="font-kalam text-[11px] text-slate-400 italic px-2">No recent notes</p>
+                      <p className="text-[11.5px] text-[var(--ns-ink-muted)] italic px-2.5">No recent notes</p>
                     )}
                   </div>
                 </div>
               )}
 
+              {!isSidebarCollapsed && (
+                <>
+                  {/* Notes Storage — derived from actual note payload sizes */}
+                  <div className="shrink-0 mt-2 rounded-[var(--ns-radius-md)] bg-[var(--ns-surface)] shadow-[var(--ns-shadow-card)] p-3">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <HardDrive className="w-3.5 h-3.5 text-[var(--ns-ink-muted)]" />
+                      <span className="text-[12px] font-medium text-[var(--ns-ink)]">Notes Storage</span>
+                    </div>
+                    <div className="flex items-baseline justify-between mb-1.5">
+                      <span className="text-[11px] text-[var(--ns-ink-muted)]">{storageUsage.used} of {storageUsage.quota} used</span>
+                      <span className="text-[11px] font-medium text-[var(--ns-ink-soft)] tabular-nums">{storageUsage.percentLabel}</span>
+                    </div>
+                    <div className="h-1 rounded-full bg-[var(--ns-surface-muted)] overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-[var(--ns-accent-line)] transition-[width] duration-500"
+                        style={{ width: `${Math.min(100, Math.max(storageUsage.percent, storageUsage.bytes > 0 ? 2 : 0))}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Utility row */}
+                  <div className="shrink-0 flex items-center justify-around mt-2 pt-2 border-t border-[var(--ns-hairline)]">
+                    <Button onClick={() => setIsTypographyOpen(true)} variant="ghost" size="icon" className={NS.iconBtnSm} title="Typography & Style Lab">
+                      <Settings className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      onClick={() => setFilterTab(p => p === 'pinned' ? 'all' : 'pinned')}
+                      variant="ghost"
+                      size="icon"
+                      className={cn(NS.iconBtnSm, filterTab === 'pinned' && 'text-[var(--ns-accent)]')}
+                      title="Pinned notes"
+                    >
+                      <Star className={cn('w-4 h-4', filterTab === 'pinned' && 'fill-[var(--ns-accent-line)] text-[var(--ns-accent-line)]')} />
+                    </Button>
+                    <Button
+                      onClick={() => setActiveFolder('Trash')}
+                      variant="ghost"
+                      size="icon"
+                      className={cn(NS.iconBtnSm, activeFolder === 'Trash' && 'text-[var(--ns-accent)]')}
+                      title="Trash"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      onClick={() => setIsFocusMode(p => !p)}
+                      variant="ghost"
+                      size="icon"
+                      className={NS.iconBtnSm}
+                      title="Focus mode (⌘⇧F)"
+                    >
+                      <Moon className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </>
+              )}
+
               {/* Drag handle for sidebar */}
               <div
                 onMouseDown={startResizing('sidebar')}
-                className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-amber-400/40 transition-colors group/handle z-10"
+                className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-[var(--ns-accent-line)]/30 transition-colors group/handle z-10"
               >
-                <div className="absolute top-1/2 -translate-y-1/2 -right-2 w-3 h-8 rounded-full bg-white border border-[#2d2d2d]/20 opacity-0 group-hover/handle:opacity-100 flex items-center justify-center shadow-sm">
-                  <GripVertical className="w-2.5 h-2.5 text-slate-400" />
+                <div className="absolute top-1/2 -translate-y-1/2 -right-2 w-3 h-8 rounded-full bg-[var(--ns-surface)] shadow-[var(--ns-shadow-card)] opacity-0 group-hover/handle:opacity-100 flex items-center justify-center">
+                  <GripVertical className="w-2.5 h-2.5 text-[var(--ns-ink-muted)]" />
                 </div>
               </div>
             </div>
@@ -1468,27 +1770,28 @@ export default function FullProjectNotesPage() {
             {/* COLUMN 2: Notes List inside selected folder */}
             <div
               style={{ width: listWidth, flex: '0 0 auto' }}
-              className="border-r-2 border-[#2d2d2d] flex flex-col p-4 bg-[#fdfbf7]/40 relative"
+              className="border-r border-[var(--ns-hairline)] flex flex-col p-4 bg-[var(--ns-surface)] relative"
             >
-              <div className="flex gap-1.5 mb-2 relative">
+              <div className="flex gap-1.5 mb-3 relative">
                 <div className="relative flex-1">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--ns-ink-muted)]" />
                   <Input
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     placeholder="Search notes..."
-                    className="pl-8 journal-input text-xs h-9 border-[#2d2d2d]/25 bg-white"
+                    className={cn(NS.softInput, 'pl-9 h-9')}
                   />
                 </div>
                 <Button
                   onClick={() => setShowDatePicker(!showDatePicker)}
                   variant="ghost"
                   size="icon"
-                  className={`h-9 w-9 border-2 rounded-xl transition-all ${
+                  className={cn(
+                    'h-9 w-9 rounded-[var(--ns-radius-sm)] transition-colors',
                     showDatePicker || startDate || endDate
-                      ? 'bg-amber-100 border-amber-500 text-amber-800'
-                      : 'bg-white border-[#2d2d2d]/10 hover:border-[#2d2d2d]/30 text-slate-500'
-                  }`}
+                      ? 'bg-[var(--ns-accent-soft)] text-[var(--ns-accent)]'
+                      : 'text-[var(--ns-ink-muted)] hover:text-[var(--ns-ink)] hover:bg-black/[0.04]'
+                  )}
                   title="Date Range Filter"
                 >
                   <CalendarDays className="w-4 h-4" />
@@ -1496,126 +1799,129 @@ export default function FullProjectNotesPage() {
               </div>
 
               {showDatePicker && (
-                <div className="bg-[#f5f0e6]/50 border-2 border-[#2d2d2d]/20 rounded-xl p-2.5 mb-3 space-y-2 shadow-inner">
+                <div className="bg-[var(--ns-surface-muted)] rounded-[var(--ns-radius-md)] p-3 mb-3 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-kalam text-[11px] font-bold text-[#2d2d2d]">Filter by Date Range:</span>
+                    <span className={NS.label}>Filter by date range</span>
                     {(startDate || endDate) && (
                       <button
                         onClick={() => { setStartDate(''); setEndDate(''); }}
-                        className="font-kalam text-[10px] text-red-600 hover:text-red-700 font-bold"
+                        className="text-[10.5px] font-medium text-rose-600 hover:text-rose-700"
                       >
-                        Clear Range
+                        Clear
                       </button>
                     )}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-0.5">
-                      <span className="font-kalam text-[9px] text-slate-500">From</span>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-[var(--ns-ink-muted)]">From</span>
                       <Input
                         type="date"
                         value={startDate}
                         onChange={e => setStartDate(e.target.value)}
-                        className="h-8 text-xs font-kalam bg-white border-[#2d2d2d]/20 p-1"
+                        className={cn(NS.softInput, 'h-8 bg-[var(--ns-surface)] px-2 text-[12px]')}
                       />
                     </div>
-                    <div className="space-y-0.5">
-                      <span className="font-kalam text-[9px] text-slate-500">To</span>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-[var(--ns-ink-muted)]">To</span>
                       <Input
                         type="date"
                         value={endDate}
                         onChange={e => setEndDate(e.target.value)}
-                        className="h-8 text-xs font-kalam bg-white border-[#2d2d2d]/20 p-1"
+                        className={cn(NS.softInput, 'h-8 bg-[var(--ns-surface)] px-2 text-[12px]')}
                       />
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="flex gap-1 bg-[#f5f0e6] p-1 rounded-xl border-2 border-[#2d2d2d]/20 shadow-sm mb-3">
-                <button
-                  onClick={() => setFilterTab('all')}
-                  className={`flex-1 text-center font-kalam text-xs py-1.5 rounded-lg transition-all ${
-                    filterTab === 'all'
-                      ? 'bg-[#2d2d2d] text-white font-bold'
-                      : 'text-slate-600 hover:bg-[#2d2d2d]/5'
-                  }`}
-                >
-                  All Notes
-                </button>
-                <button
-                  onClick={() => setFilterTab('pinned')}
-                  className={`flex-1 text-center font-kalam text-xs py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
-                    filterTab === 'pinned'
-                      ? 'bg-[#2d2d2d] text-white font-bold'
-                      : 'text-slate-600 hover:bg-[#2d2d2d]/5'
-                  }`}
-                >
-                  <Star className={`w-3 h-3 ${filterTab === 'pinned' ? 'fill-amber-400 text-amber-400' : 'text-slate-400'}`} />
-                  Pinned
-                </button>
-                <button
-                  onClick={() => setFilterTab('recent')}
-                  className={`flex-1 text-center font-kalam text-xs py-1.5 rounded-lg transition-all ${
-                    filterTab === 'recent'
-                      ? 'bg-[#2d2d2d] text-white font-bold'
-                      : 'text-slate-600 hover:bg-[#2d2d2d]/5'
-                  }`}
-                >
-                  Recent
-                </button>
+              {/* Underline filter tabs */}
+              <div className="flex items-center gap-5 mb-3 border-b border-[var(--ns-hairline)]">
+                {([['all', 'All Notes'], ['pinned', 'Pinned'], ['recent', 'Recent']] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setFilterTab(key)}
+                    className={cn(
+                      'relative -mb-px pb-2 text-[12.5px] transition-colors flex items-center gap-1',
+                      filterTab === key
+                        ? 'text-[var(--ns-ink)] font-semibold border-b-2 border-[var(--ns-ink)]'
+                        : 'text-[var(--ns-ink-muted)] hover:text-[var(--ns-ink-soft)] border-b-2 border-transparent'
+                    )}
+                  >
+                    {key === 'pinned' && (
+                      <Star className={cn('w-3 h-3', filterTab === 'pinned' ? 'fill-[var(--ns-accent-line)] text-[var(--ns-accent-line)]' : '')} />
+                    )}
+                    {label}
+                  </button>
+                ))}
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              <div className="flex-1 overflow-y-auto space-y-5 pr-1 -mx-1 px-1">
                 {chronologicalGroups.map(group => (
-                  <div key={group.name} className="space-y-2">
-                    <div className="flex items-center gap-1.5 border-b border-[#2d2d2d]/10 pb-1 mb-1.5">
-                      <CalendarDays className="w-3.5 h-3.5 text-amber-600" />
-                      <span className="font-caveat text-base font-bold text-slate-700">{group.name}</span>
-                      <span className="text-[10px] text-slate-400 font-kalam ml-auto">({group.notes.length})</span>
+                  <div key={group.name} className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 px-1">
+                      <span className={NS.label}>{group.name}</span>
+                      <span className="text-[10px] text-[var(--ns-ink-muted)] bg-[var(--ns-surface-muted)] rounded-full px-1.5 py-px tabular-nums">
+                        {group.notes.length}
+                      </span>
                     </div>
 
-                    <div className="space-y-2">
-                      {group.notes.map(n => (
-                        <div
-                          key={n.id}
-                          onClick={() => selectNote(n)}
-                          className={`p-3.5 border-2 rounded-xl cursor-pointer transition-all hover:scale-[1.01] relative ${
-                            selectedNoteId === n.id
-                              ? 'bg-[#fffacd] border-[#2d2d2d] shadow-[3px_3px_0px_rgba(45,45,45,1)]'
-                              : 'bg-white border-[#2d2d2d]/10 hover:border-[#2d2d2d]/30 shadow-sm'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2 mb-1">
-                            <h3 className="font-caveat text-xl font-bold text-[#2d2d2d] truncate flex-1">{n.title}</h3>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); togglePin(n); }}
-                              className="shrink-0 p-0.5 -mt-0.5 -mr-0.5 hover:scale-110 transition-transform"
-                              title={n.isFav ? 'Unpin' : 'Pin to top'}
-                            >
-                              <Star className={`w-4 h-4 ${n.isFav ? 'fill-amber-500 text-amber-500' : 'text-slate-300'}`} />
-                            </button>
-                          </div>
-                          <p className="font-kalam text-xs text-slate-500 line-clamp-2 leading-snug mb-2">
-                            {htmlToPlainText(n.content)}
-                          </p>
-                          <div className="flex items-center justify-between flex-wrap gap-1.5">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <Badge variant="outline" className="text-[9px] font-kalam py-0 bg-slate-50">{n.folder}</Badge>
-                              {n.tags?.slice(0, 2).map(t => (
-                                <Badge key={t} variant="secondary" className="text-[9px] font-kalam py-0 bg-amber-50 text-amber-700 border-amber-200">{t}</Badge>
-                              ))}
+                    <div className="space-y-1">
+                      {group.notes.map(n => {
+                        const isActive = selectedNoteId === n.id;
+                        return (
+                          <div
+                            key={n.id}
+                            onClick={() => selectNote(n)}
+                            className={cn(
+                              'group relative overflow-hidden p-3 rounded-[var(--ns-radius-md)] cursor-pointer transition-colors',
+                              isActive
+                                ? 'bg-[var(--ns-accent-soft)]'
+                                : 'hover:bg-black/[0.025]'
+                            )}
+                          >
+                            {isActive && (
+                              <span className="absolute left-0 top-2 bottom-2 w-[2px] rounded-full bg-[var(--ns-accent-line)]" />
+                            )}
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <h3 className={cn(
+                                'text-[13.5px] font-semibold truncate flex-1',
+                                isActive ? 'text-[var(--ns-accent-ink)]' : 'text-[var(--ns-ink)]'
+                              )}>
+                                {n.title || 'Untitled'}
+                              </h3>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); togglePin(n); }}
+                                className={cn(
+                                  'shrink-0 p-0.5 -mt-0.5 -mr-0.5 transition-opacity',
+                                  n.isFav ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                                )}
+                                title={n.isFav ? 'Unpin' : 'Pin to top'}
+                              >
+                                <Star className={cn('w-3.5 h-3.5', n.isFav ? 'fill-[var(--ns-accent-line)] text-[var(--ns-accent-line)]' : 'text-[var(--ns-ink-muted)]')} />
+                              </button>
                             </div>
-                            <span className="text-[9px] font-kalam text-slate-400">
-                              {new Date(n.updatedAt).toLocaleDateString('en-IN', { dateStyle: 'short' })}
-                            </span>
+                            <p className="text-[12px] italic text-[var(--ns-ink-muted)] line-clamp-2 leading-relaxed mb-2">
+                              {htmlToPlainText(n.content) || 'No content yet'}
+                            </p>
+                            <div className="flex items-center justify-between flex-wrap gap-1.5">
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <span className="text-[10px] text-[var(--ns-ink-soft)] bg-[var(--ns-surface-muted)] rounded px-1.5 py-0.5">{n.folder}</span>
+                                {n.tags?.slice(0, 2).map(t => (
+                                  <span key={t} className="text-[10px] text-[var(--ns-accent-ink)] bg-[var(--ns-accent-soft)] rounded px-1.5 py-0.5">{t}</span>
+                                ))}
+                              </div>
+                              <span className="text-[10px] text-[var(--ns-ink-muted)]">
+                                {formatRelativeTime(n.updatedAt)}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
                 {filteredNotes.length === 0 && (
-                  <p className="font-kalam text-xs text-slate-400 italic text-center py-12">
+                  <p className="text-[12px] text-[var(--ns-ink-muted)] italic text-center py-12">
                     {filterTab === 'pinned' ? 'No pinned notes in this folder' : 'No notes in this folder'}
                   </p>
                 )}
@@ -1624,29 +1930,23 @@ export default function FullProjectNotesPage() {
               {/* Drag handle for list column */}
               <div
                 onMouseDown={startResizing('list')}
-                className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-amber-400/40 transition-colors group/handle z-10"
+                className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-[var(--ns-accent-line)]/30 transition-colors group/handle z-10"
               >
-                <div className="absolute top-1/2 -translate-y-1/2 -right-2 w-3 h-8 rounded-full bg-white border border-[#2d2d2d]/20 opacity-0 group-hover/handle:opacity-100 flex items-center justify-center shadow-sm">
-                  <GripVertical className="w-2.5 h-2.5 text-slate-400" />
+                <div className="absolute top-1/2 -translate-y-1/2 -right-2 w-3 h-8 rounded-full bg-[var(--ns-surface)] shadow-[var(--ns-shadow-card)] opacity-0 group-hover/handle:opacity-100 flex items-center justify-center">
+                  <GripVertical className="w-2.5 h-2.5 text-[var(--ns-ink-muted)]" />
                 </div>
               </div>
             </div>
 
             {/* COLUMN 3: Rich Notebook Editor & Markdown Preview — fills all remaining width */}
-            <div className="flex-1 min-w-0 flex flex-col p-4 bg-white relative">
+            <div className="flex-1 min-w-0 flex flex-col p-4 bg-[var(--ns-surface)] relative">
               {selectedNote ? (
                 <div className="flex flex-col h-full space-y-3">
 
                   {/* Note Header Info */}
-                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#2d2d2d]/10 pb-2">
-                    <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-                      <button
-                        onClick={() => togglePin(selectedNote)}
-                        className="shrink-0 hover:scale-110 transition-transform"
-                        title={selectedNote.isFav ? 'Unpin' : 'Pin to top'}
-                      >
-                        <Star className={`w-5 h-5 ${selectedNote.isFav ? 'fill-amber-500 text-amber-500' : 'text-slate-300'}`} />
-                      </button>
+                  <div className="flex flex-col gap-2 border-b border-[var(--ns-hairline)] pb-2.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="w-4 h-4 text-[var(--ns-ink-muted)] shrink-0" />
                       <input
                         value={editTitle}
                         onChange={e => {
@@ -1655,437 +1955,405 @@ export default function FullProjectNotesPage() {
                           editTitleRef.current = val;
                         }}
                         placeholder="Untitled Note"
-                        className="bg-transparent font-caveat text-3xl font-bold border-b-2 border-transparent hover:border-slate-200 focus:border-[#2d2d2d] outline-none text-[#2d2d2d] py-1 flex-1 min-w-0"
+                        className="bg-transparent text-[20px] font-semibold outline-none text-[var(--ns-ink)] placeholder:text-[var(--ns-ink-muted)] py-0.5 flex-1 min-w-0"
                       />
+                      <button
+                        onClick={() => togglePin(selectedNote)}
+                        className="shrink-0 p-1 rounded-full hover:bg-black/[0.04] transition-colors"
+                        title={selectedNote.isFav ? 'Unpin' : 'Pin to top'}
+                      >
+                        <Star className={cn('w-4 h-4', selectedNote.isFav ? 'fill-[var(--ns-accent-line)] text-[var(--ns-accent-line)]' : 'text-[var(--ns-ink-muted)]')} />
+                      </button>
                     </div>
 
+                    {/* Metadata row */}
                     <div className="flex items-center gap-2 flex-wrap">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-kalam text-xs text-slate-400">Section:</span>
-                        <Input
-                          value={editSection}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setEditSection(val);
-                            editSectionRef.current = val;
-                          }}
-                          placeholder="Section/Tag..."
-                          className="h-8 text-xs font-kalam w-28 border-[#2d2d2d]/30"
-                        />
-                      </div>
-
                       <Select value={editFolder} onValueChange={val => {
                         setEditFolder(val);
                         editFolderRef.current = val;
                       }}>
-                        <SelectTrigger className="h-8 text-xs font-kalam w-28 border-[#2d2d2d]/30">
+                        <SelectTrigger className="h-7 w-auto gap-1.5 px-2.5 text-[11.5px] rounded-full border-0 bg-[var(--ns-surface-muted)] text-[var(--ns-ink-soft)] focus:ring-0 focus:ring-offset-0 shadow-none">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d] font-kalam">
+                        <SelectContent className="bg-[var(--ns-surface)] border-0 shadow-[var(--ns-shadow-pop)] rounded-[var(--ns-radius-md)] text-[12.5px]">
                           {folders.filter(f => f !== 'All').map(f => (
                             <SelectItem key={f} value={f}>{f}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                      {selectedNote.folder === 'Trash' && (
-                        <Button
-                          onClick={handleRestore}
-                          variant="ghost"
-                          className="h-8 px-3 font-kalam text-xs text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 gap-1.5"
-                          title="Restore Note"
-                        >
-                          <Undo2 className="w-3.5 h-3.5" /> Restore
-                        </Button>
-                      )}
-                      <Button
-                        onClick={() => {
-                          if (selectedNoteId) {
-                            handleSave({ title: editTitle, content: editContent, folder: editFolder, section: editSection || null });
-                            toast.success('Saved ✓');
-                          }
+
+                      {/* Inline tag entry — same state the Tags footer uses */}
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {editTags.map(t => (
+                          <span
+                            key={t}
+                            className="group inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-[var(--ns-accent-soft)] text-[11.5px] text-[var(--ns-accent-ink)]"
+                          >
+                            {t}
+                            <button onClick={() => removeTag(t)} className="opacity-0 group-hover:opacity-100 transition-opacity" title={`Remove "${t}"`}>
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </span>
+                        ))}
+                        <input
+                          value={tagInput}
+                          onChange={e => setTagInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+                          placeholder="Add tags..."
+                          className="h-7 w-24 bg-transparent outline-none text-[11.5px] text-[var(--ns-ink)] placeholder:text-[var(--ns-ink-muted)]"
+                        />
+                      </div>
+
+                      {/* Section / sub-grouping */}
+                      <Input
+                        value={editSection}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setEditSection(val);
+                          editSectionRef.current = val;
                         }}
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-emerald-600 border border-emerald-200 rounded-lg hover:bg-emerald-50"
-                        title="Save Note (⌘S)"
-                      >
-                        <Save className="w-4 h-4" />
-                      </Button>
-                      <Button onClick={downloadNote} variant="ghost" size="icon" className="h-8 w-8 text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50" title="Download Markdown">
-                        <Download className="w-4 h-4" />
-                      </Button>
-                      <Button onClick={handleDelete} variant="ghost" size="icon" className="h-8 w-8 text-red-500 border border-red-200 rounded-lg hover:bg-red-50" title={selectedNote.folder === 'Trash' ? 'Permanently Delete' : 'Move to Trash'} >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        onClick={() => setIsFocusMode(prev => !prev)}
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-amber-600 border border-amber-200 rounded-lg hover:bg-amber-50"
-                        title={isFocusMode ? "Exit Full Screen (Ctrl+Shift+F)" : "Full Screen Focus (Ctrl+Shift+F)"}
-                      >
-                        {isFocusMode ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                      </Button>
+                        placeholder="Section..."
+                        className={cn(NS.softInput, 'h-7 w-24 rounded-full px-2.5 text-[11.5px]')}
+                      />
+
+                      {lastSavedAt && (
+                        <span className="hidden xl:flex items-center gap-1 text-[11px] text-[var(--ns-ink-muted)]">
+                          <Clock className="w-3 h-3" /> Last saved: {formatRelativeTime(lastSavedAt)}
+                        </span>
+                      )}
+
+                      <div className="flex items-center gap-0.5 ml-auto">
+                        {selectedNote.folder === 'Trash' && (
+                          <Button onClick={handleRestore} variant="ghost" size="icon" className={NS.iconBtnSm} title="Restore Note">
+                            <Undo2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                        <Button
+                          onClick={() => {
+                            if (selectedNoteId) {
+                              handleSave({ title: editTitle, content: editContent, folder: editFolder, section: editSection || null });
+                              toast.success('Saved ✓');
+                            }
+                          }}
+                          variant="ghost"
+                          size="icon"
+                          className={NS.iconBtnSm}
+                          title="Save Note (⌘S)"
+                        >
+                          <Save className="w-4 h-4" />
+                        </Button>
+                        <Button onClick={downloadNote} variant="ghost" size="icon" className={NS.iconBtnSm} title="Download Markdown">
+                          <Download className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          onClick={handleDelete}
+                          variant="ghost"
+                          size="icon"
+                          className={cn(NS.iconBtnSm, 'hover:text-rose-600')}
+                          title={selectedNote.folder === 'Trash' ? 'Permanently Delete' : 'Move to Trash'}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          onClick={() => setIsFocusMode(prev => !prev)}
+                          variant="ghost"
+                          size="icon"
+                          className={NS.iconBtnSm}
+                          title={isFocusMode ? "Exit Full Screen (Ctrl+Shift+F)" : "Full Screen Focus (Ctrl+Shift+F)"}
+                        >
+                          {isFocusMode ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                        </Button>
+                        <Button onClick={shareNote} className={cn(NS.inkBtn, 'h-7 px-3 ml-1 gap-1.5')} title="Copy note as markdown">
+                          <Share2 className="w-3 h-3" /> Share
+                        </Button>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Advanced Editor Controls Toolbar */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-50 border-2 border-[#2d2d2d]/10 rounded-xl">
-                    {/* Font Settings Toggle & Freeform Canvas */}
-                    <div className="flex items-center gap-1.5 flex-wrap">
+                  {/* ── Toolbar row 1: inline formatting, blocks, lists, colours ── */}
+                  <div className="flex flex-wrap items-center gap-1 shrink-0">
+                    <Button variant="ghost" size="icon" className={cn(NS.toolBtn, activeFormats.bold && NS.toolBtnOn)} onClick={() => applyInline('bold')} title="Bold (⌘B)"><Bold className="w-3.5 h-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className={cn(NS.toolBtn, activeFormats.italic && NS.toolBtnOn)} onClick={() => applyInline('italic')} title="Italic (⌘I)"><Italic className="w-3.5 h-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className={NS.toolBtn} onClick={() => applyInline('underline')} title="Underline (⌘U)"><Underline className="w-3.5 h-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className={NS.toolBtn} onClick={() => applyInline('strikeThrough')} title="Strikethrough"><Strikethrough className="w-3.5 h-3.5" /></Button>
+
+                    <span className={NS.divider} />
+
+                    <Button variant="ghost" size="icon" className={NS.toolBtn} onClick={() => applyBlock('h1')} title="Heading 1"><Heading1 className="w-3.5 h-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className={NS.toolBtn} onClick={() => applyBlock('h2')} title="Heading 2"><Heading2 className="w-3.5 h-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className={NS.toolBtn} onClick={() => applyBlock('h3')} title="Heading 3"><Heading3 className="w-3.5 h-3.5" /></Button>
+
+                    <span className={NS.divider} />
+
+                    <Button variant="ghost" size="icon" className={cn(NS.toolBtn, activeFormats.ul && NS.toolBtnOn)} onClick={() => applyList('ul')} title="Bulleted list"><List className="w-3.5 h-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className={cn(NS.toolBtn, activeFormats.ol && NS.toolBtnOn)} onClick={() => applyList('ol')} title="Numbered list"><ListOrdered className="w-3.5 h-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className={NS.toolBtn} onClick={applyChecklist} title="Checklist"><ListChecks className="w-3.5 h-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className={NS.toolBtn} onClick={() => applyInline('outdent')} title="Outdent (Shift+Tab)"><Outdent className="w-3.5 h-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className={NS.toolBtn} onClick={() => applyInline('indent')} title="Indent (Tab)"><Indent className="w-3.5 h-3.5" /></Button>
+
+                    <span className={NS.divider} />
+
+                    <Button variant="ghost" size="icon" className={NS.toolBtn} onClick={() => editorRef.current?.insertTable()} title="Insert Table"><Table className="w-3.5 h-3.5" /></Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={NS.toolBtn}
+                      onClick={() => {
+                        const name = prompt('Enter Assignee Name or Tag text:');
+                        if (name?.trim()) {
+                          editorRef.current?.insertPill(name.trim());
+                        }
+                      }}
+                      title="Insert Assignee/Tag Pill"
+                    >
+                      <User className="w-3.5 h-3.5" />
+                    </Button>
+
+                    <span className={NS.divider} />
+
+                    {/* Highlighter colours */}
+                    <Highlighter className="w-3.5 h-3.5 text-[var(--ns-ink-muted)] mr-0.5" />
+                    {HIGHLIGHT_SWATCHES.map(sw => (
+                      <button
+                        key={sw.label}
+                        onClick={() => applyHighlight(readNsToken(sw.token, sw.fallback))}
+                        className="w-4 h-4 rounded-full ring-1 ring-inset ring-black/[0.06] hover:scale-110 transition-transform"
+                        style={{ backgroundColor: `var(${sw.token}, ${sw.fallback})` }}
+                        title={`${sw.label} highlight`}
+                      />
+                    ))}
+
+                    <span className={NS.divider} />
+
+                    {/* Text colours */}
+                    {TEXT_SWATCHES.map(sw => (
+                      <button
+                        key={sw.label}
+                        onClick={() => editorRef.current?.exec('foreColor', readNsToken(sw.token, sw.fallback))}
+                        className={cn(
+                          'w-4 h-4 rounded-full ring-1 ring-inset ring-black/[0.06] flex items-center justify-center text-[9px] font-bold hover:scale-110 transition-transform',
+                          sw.onDark ? 'text-white' : 'text-[var(--ns-ink)]'
+                        )}
+                        style={{ backgroundColor: sw.onDark ? `var(${sw.token}, ${sw.fallback})` : 'var(--ns-surface)' }}
+                        title={`${sw.label} text`}
+                      >
+                        A
+                      </button>
+                    ))}
+
+                    <span className="ml-auto text-[11px] text-[var(--ns-ink-muted)] hidden sm:block">
+                      {editorStats.words} words · {editorStats.readingMins} min read
+                    </span>
+                  </div>
+
+                  {/* ── Toolbar row 2: Style Lab, dividers, canvas, history ── */}
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                    <Button onClick={() => setIsTypographyOpen(true)} variant="ghost" size="sm" className={NS.toolChip}>
+                      <Palette className="w-3.5 h-3.5 text-[var(--ns-accent-line)]" />
+                      Style Lab
+                    </Button>
+
+                    {/* Section Divider Dropdown */}
+                    <div className="relative" data-ns-menu>
                       <Button
-                        onClick={() => setIsTypographyOpen(true)}
+                        onClick={() => setShowDividerMenu(!showDividerMenu)}
                         variant="ghost"
                         size="sm"
-                        className="h-8 font-kalam text-xs gap-1.5 border border-[#2d2d2d]/20 bg-white hover:bg-slate-50 shadow-sm rounded-lg"
+                        className={NS.toolChip}
+                        title="Insert Section Divider Line"
                       >
-                        <Palette className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
-                        Style Lab
+                        <Layers className="w-3.5 h-3.5 text-[var(--ns-accent-line)]" />
+                        Section Divider
                       </Button>
+                      <AnimatePresence>
+                        {showDividerMenu && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -4 }}
+                            transition={{ duration: 0.14 }}
+                            className="absolute left-0 top-full mt-1.5 bg-[var(--ns-surface)] rounded-[var(--ns-radius-md)] shadow-[var(--ns-shadow-pop)] p-1.5 z-50 w-48 space-y-0.5"
+                          >
+                            {DIVIDER_STYLES.map(dv => (
+                              <button
+                                key={dv.id}
+                                onClick={() => { editorRef.current?.insertSectionDivider(dv.id); setShowDividerMenu(false); }}
+                                className="w-full text-left px-2 py-1.5 rounded-[var(--ns-radius-sm)] text-[12.5px] text-[var(--ns-ink-soft)] hover:text-[var(--ns-ink)] hover:bg-black/[0.04] flex items-center justify-between transition-colors"
+                              >
+                                <span>{dv.label}</span>
+                                <span className="text-[11px] text-[var(--ns-ink-muted)]">{dv.glyph}</span>
+                              </button>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
 
-                      {/* Section Divider Dropdown */}
-                      <div className="relative">
+                    {/* Freeform Canvas & Grouping Tools */}
+                    <Button
+                      onClick={() => setIsCanvasActive(!isCanvasActive)}
+                      variant="ghost"
+                      size="sm"
+                      className={cn(NS.toolChip, isCanvasActive && 'bg-[var(--ns-accent-soft)] text-[var(--ns-accent)] font-medium')}
+                      title="Freeform canvas"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      Canvas Notes
+                    </Button>
+                    {isCanvasActive && (
+                      <>
+                        <Button onClick={() => addCanvasBlock(60, 60)} variant="ghost" size="sm" className={NS.toolChip}>
+                          <Plus className="w-3.5 h-3.5" /> Text Box
+                        </Button>
                         <Button
-                          onClick={() => setShowDividerMenu(!showDividerMenu)}
+                          onClick={groupSelectedBlocks}
                           variant="ghost"
                           size="sm"
-                          className="h-8 font-kalam text-xs gap-1 border border-[#2d2d2d]/20 bg-white hover:bg-slate-50 shadow-sm rounded-lg text-slate-700"
-                          title="Insert Section Divider Line"
+                          disabled={selectedBlockIds.length < 2}
+                          className={cn(NS.toolChip, 'disabled:opacity-40')}
+                          title="Group selected items (⌘G)"
                         >
-                          <Layers className="w-3.5 h-3.5 text-amber-600" />
-                          Section Divider
+                          <Layers className="w-3.5 h-3.5" /> Group ({selectedBlockIds.length})
                         </Button>
-                        {showDividerMenu && (
-                          <div className="absolute left-0 top-full mt-1 bg-white border-2 border-[#2d2d2d] rounded-xl shadow-lg p-2 z-50 w-44 space-y-1 font-kalam text-xs">
-                            <button
-                              onClick={() => { editorRef.current?.insertSectionDivider('wavy'); setShowDividerMenu(false); }}
-                              className="w-full text-left px-2 py-1.5 rounded hover:bg-amber-50 font-bold flex items-center justify-between"
-                            >
-                              <span>Wavy Line</span>
-                              <span className="text-[10px] text-amber-600">〰️</span>
-                            </button>
-                            <button
-                              onClick={() => { editorRef.current?.insertSectionDivider('dashed'); setShowDividerMenu(false); }}
-                              className="w-full text-left px-2 py-1.5 rounded hover:bg-amber-50 font-bold flex items-center justify-between"
-                            >
-                              <span>Dashed Line</span>
-                              <span className="text-[10px] text-slate-500">---</span>
-                            </button>
-                            <button
-                              onClick={() => { editorRef.current?.insertSectionDivider('gradient'); setShowDividerMenu(false); }}
-                              className="w-full text-left px-2 py-1.5 rounded hover:bg-amber-50 font-bold flex items-center justify-between"
-                            >
-                              <span>Gradient Glow</span>
-                              <span className="text-[10px] text-purple-600">✨</span>
-                            </button>
-                            <button
-                              onClick={() => { editorRef.current?.insertSectionDivider('vintage'); setShowDividerMenu(false); }}
-                              className="w-full text-left px-2 py-1.5 rounded hover:bg-amber-50 font-bold flex items-center justify-between"
-                            >
-                              <span>Vintage Double</span>
-                              <span className="text-[10px] text-amber-800">═</span>
-                            </button>
-                            <button
-                              onClick={() => { editorRef.current?.insertSectionDivider('stitched'); setShowDividerMenu(false); }}
-                              className="w-full text-left px-2 py-1.5 rounded hover:bg-amber-50 font-bold flex items-center justify-between"
-                            >
-                              <span>Stitched Dotted</span>
-                              <span className="text-[10px] text-amber-700">···</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                      </>
+                    )}
 
-                      {/* Freeform Canvas & Grouping Tools */}
-                      <Button
-                        onClick={() => setIsCanvasActive(!isCanvasActive)}
-                        variant="ghost"
-                        size="sm"
-                        className={`h-8 font-kalam text-xs gap-1 border-2 transition-all rounded-lg ${
-                          isCanvasActive ? 'bg-amber-100 border-amber-600 text-amber-900 font-bold' : 'border-[#2d2d2d]/20 bg-white text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        ✍️ Canvas Notes
-                      </Button>
-                      {isCanvasActive && (
-                        <>
-                          <Button
-                            onClick={() => addCanvasBlock(60, 60)}
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 font-kalam text-xs bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100 rounded-lg"
-                          >
-                            + Text Box
-                          </Button>
-                          <Button
-                            onClick={groupSelectedBlocks}
-                            variant="ghost"
-                            size="sm"
-                            disabled={selectedBlockIds.length < 2}
-                            className="h-8 font-kalam text-xs bg-purple-50 border border-purple-300 text-purple-800 hover:bg-purple-100 disabled:opacity-50 rounded-lg"
-                            title="Group selected items (tldr style)"
-                          >
-                            📦 Group ({selectedBlockIds.length})
-                          </Button>
-                        </>
-                      )}
-                    </div>
+                    <span className={NS.divider} />
 
-                    {/* Undo / Redo */}
-                    <div className="flex items-center gap-1 border-l pl-2 border-[#2d2d2d]/10">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 rounded hover:bg-slate-200"
-                        onClick={() => editorRef.current?.exec('undo')}
-                        title="Undo (⌘Z)"
-                      >
-                        <Undo2 className="w-3.5 h-3.5 text-slate-700" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 rounded hover:bg-slate-200"
-                        onClick={() => editorRef.current?.exec('redo')}
-                        title="Redo (⌘Y / ⌘⇧Z)"
-                      >
-                        <Redo2 className="w-3.5 h-3.5 text-slate-700" />
-                      </Button>
-                    </div>
-
-                    {/* Text & List Toolbar */}
-                    <div className="flex items-center gap-1 border-l pl-2 border-[#2d2d2d]/10">
-                      <Button
-                        variant="ghost" size="icon"
-                        className={`h-6 w-6 rounded hover:bg-slate-200 ${activeFormats.bold ? 'bg-slate-800 text-white hover:bg-slate-800' : ''}`}
-                        onClick={() => applyInline('bold')} title="Bold (⌘B)"
-                      ><Bold className="w-3 h-3" /></Button>
-                      <Button
-                        variant="ghost" size="icon"
-                        className={`h-6 w-6 rounded hover:bg-slate-200 ${activeFormats.italic ? 'bg-slate-800 text-white hover:bg-slate-800' : ''}`}
-                        onClick={() => applyInline('italic')} title="Italic (⌘I)"
-                      ><Italic className="w-3 h-3" /></Button>
-                      <Button variant="ghost" size="icon" className="h-6 w-6 rounded hover:bg-slate-200" onClick={() => applyBlock('h1')} title="Heading 1"><Heading1 className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-6 w-6 rounded hover:bg-slate-200" onClick={() => applyBlock('h2')} title="Heading 2"><Heading2 className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-6 w-6 rounded hover:bg-slate-200" onClick={() => applyBlock('h3')} title="Heading 3"><Heading3 className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-6 w-6 rounded hover:bg-slate-200" onClick={() => editorRef.current?.insertTable()} title="Insert Table"><Table className="w-3.5 h-3.5" /></Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 rounded hover:bg-slate-200 text-amber-700"
-                        onClick={() => {
-                          const name = prompt('Enter Assignee Name or Tag text:');
-                          if (name?.trim()) {
-                            editorRef.current?.insertPill(name.trim());
-                          }
-                        }}
-                        title="Insert Assignee/Tag Pill"
-                      >
-                        <User className="w-3.5 h-3.5" />
-                      </Button>
-
-                      {/* List controls — bullets, numbered, checkboxes, indent/outdent */}
-                      <div className="flex items-center gap-0.5 border-l pl-1.5 border-[#2d2d2d]/10">
-                        <Button
-                          variant="ghost" size="icon"
-                          className={`h-6 w-6 rounded hover:bg-slate-200 ${activeFormats.ul ? 'bg-slate-800 text-white hover:bg-slate-800' : ''}`}
-                          onClick={() => applyList('ul')} title="Bulleted list"
-                        ><List className="w-3.5 h-3.5" /></Button>
-                        <Button
-                          variant="ghost" size="icon"
-                          className={`h-6 w-6 rounded hover:bg-slate-200 ${activeFormats.ol ? 'bg-slate-800 text-white hover:bg-slate-800' : ''}`}
-                          onClick={() => applyList('ol')} title="Numbered list"
-                        ><ListOrdered className="w-3.5 h-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 rounded hover:bg-slate-200" onClick={applyChecklist} title="Checklist"><ListChecks className="w-3.5 h-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 rounded hover:bg-slate-200" onClick={() => applyInline('outdent')} title="Outdent (Shift+Tab)"><Outdent className="w-3.5 h-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 rounded hover:bg-slate-200" onClick={() => applyInline('indent')} title="Indent (Tab)"><Indent className="w-3.5 h-3.5" /></Button>
-                      </div>
-
-                      {/* Highlighter Colors — Includes RED color */}
-                      <div className="flex items-center gap-0.5 border-l pl-1.5 border-[#2d2d2d]/10">
-                        <button onClick={() => applyHighlight('#fecdd3')} className="w-4 h-4 rounded-full bg-[#fecdd3] border border-[#2d2d2d]/20 hover:scale-110 transition-transform" title="Red Highlight" />
-                        <button onClick={() => applyHighlight('#fef08a')} className="w-4 h-4 rounded-full bg-[#fef08a] border border-[#2d2d2d]/20 hover:scale-110 transition-transform" title="Yellow Highlight" />
-                        <button onClick={() => applyHighlight('#d1fae5')} className="w-4 h-4 rounded-full bg-[#d1fae5] border border-[#2d2d2d]/20 hover:scale-110 transition-transform" title="Green Highlight" />
-                        <button onClick={() => applyHighlight('#dbeafe')} className="w-4 h-4 rounded-full bg-[#dbeafe] border border-[#2d2d2d]/20 hover:scale-110 transition-transform" title="Blue Highlight" />
-                        <button onClick={() => applyHighlight('#fce7f3')} className="w-4 h-4 rounded-full bg-[#fce7f3] border border-[#2d2d2d]/20 hover:scale-110 transition-transform" title="Pink Highlight" />
-                        <button onClick={() => applyHighlight('#ffedd5')} className="w-4 h-4 rounded-full bg-[#ffedd5] border border-[#2d2d2d]/20 hover:scale-110 transition-transform" title="Orange Highlight" />
-                      </div>
-
-                      {/* Text Colors */}
-                      <div className="flex items-center gap-0.5 border-l pl-1.5 border-[#2d2d2d]/10">
-                        <button onClick={() => editorRef.current?.exec('foreColor', '#2d2d2d')} className="w-4 h-4 rounded-full border border-[#2d2d2d]/20 flex items-center justify-center text-[10px] font-bold text-slate-700 bg-white" title="Default Text Color">A</button>
-                        <button onClick={() => editorRef.current?.exec('foreColor', '#e11d48')} className="w-4 h-4 rounded-full border border-[#2d2d2d]/20 flex items-center justify-center text-[10px] font-bold text-white bg-[#e11d48]" title="Red Text">A</button>
-                        <button onClick={() => editorRef.current?.exec('foreColor', '#2563eb')} className="w-4 h-4 rounded-full border border-[#2d2d2d]/20 flex items-center justify-center text-[10px] font-bold text-white bg-[#2563eb]" title="Blue Text">A</button>
-                        <button onClick={() => editorRef.current?.exec('foreColor', '#16a34a')} className="w-4 h-4 rounded-full border border-[#2d2d2d]/20 flex items-center justify-center text-[10px] font-bold text-white bg-[#16a34a]" title="Green Text">A</button>
-                        <button onClick={() => editorRef.current?.exec('foreColor', '#7c3aed')} className="w-4 h-4 rounded-full border border-[#2d2d2d]/20 flex items-center justify-center text-[10px] font-bold text-white bg-[#7c3aed]" title="Purple Text">A</button>
-                      </div>
-                    </div>
-
-                    <div className="font-kalam text-[10px] text-slate-400 px-2 hidden sm:block">
-                      {editorStats.words} words · {editorStats.readingMins} min read
-                    </div>
+                    <Button variant="ghost" size="icon" className={NS.toolBtn} onClick={() => editorRef.current?.exec('undo')} title="Undo (⌘Z)">
+                      <Undo2 className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className={NS.toolBtn} onClick={() => editorRef.current?.exec('redo')} title="Redo (⌘Y / ⌘⇧Z)">
+                      <Redo2 className="w-3.5 h-3.5" />
+                    </Button>
                   </div>
 
 
                   {/* Excel-like Table Actions toolbar */}
                   {activeFormats.inTable && (
-                    <div className="flex flex-wrap items-center gap-2 p-2 bg-amber-50/50 border-2 border-[#2d2d2d] rounded-xl shadow-[3px_3px_0px_rgba(45,45,45,1)] shrink-0">
-                      <span className="font-kalam text-xs font-bold text-amber-900 mr-1 flex items-center gap-1">
-                        <Table className="w-3.5 h-3.5 text-amber-700" /> Table Options:
+                    <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 bg-[var(--ns-surface-muted)] rounded-[var(--ns-radius-md)] shrink-0">
+                      <span className="text-[11.5px] font-medium text-[var(--ns-ink-soft)] mr-1 flex items-center gap-1.5">
+                        <Table className="w-3.5 h-3.5 text-[var(--ns-ink-muted)]" /> Table
                       </span>
+                      <Button onClick={() => editorRef.current?.tableAddRow(true)} variant="ghost" size="sm" className={NS.tableChip}>Row Above</Button>
+                      <Button onClick={() => editorRef.current?.tableAddRow(false)} variant="ghost" size="sm" className={NS.tableChip}>Row Below</Button>
+                      <Button onClick={() => editorRef.current?.tableDeleteRow()} variant="ghost" size="sm" className={cn(NS.tableChip, 'text-rose-600 hover:text-rose-700')}>Delete Row</Button>
+
+                      <span className={NS.divider} />
+
+                      <Button onClick={() => editorRef.current?.tableAddColumn(true)} variant="ghost" size="sm" className={NS.tableChip}>Col Left</Button>
+                      <Button onClick={() => editorRef.current?.tableAddColumn(false)} variant="ghost" size="sm" className={NS.tableChip}>Col Right</Button>
+                      <Button onClick={() => editorRef.current?.tableDeleteColumn()} variant="ghost" size="sm" className={cn(NS.tableChip, 'text-rose-600 hover:text-rose-700')}>Delete Col</Button>
+
+                      <span className={NS.divider} />
+
                       <div className="flex items-center gap-1">
-                        <Button
-                          onClick={() => editorRef.current?.tableAddRow(true)}
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-[10px] font-kalam bg-white border border-[#2d2d2d] text-[#2d2d2d] hover:bg-slate-50 shadow-sm px-2 pt-0.5"
+                        <span className="text-[11px] text-[var(--ns-ink-muted)] mr-0.5">Fill</span>
+                        {HIGHLIGHT_SWATCHES.map(sw => (
+                          <button
+                            key={sw.label}
+                            onClick={() => editorRef.current?.tableHighlightCell(readNsToken(sw.token, sw.fallback))}
+                            className="w-4 h-4 rounded-full ring-1 ring-inset ring-black/[0.06] hover:scale-110 transition-transform"
+                            style={{ backgroundColor: `var(${sw.token}, ${sw.fallback})` }}
+                            title={`${sw.label} fill`}
+                          />
+                        ))}
+                        <button
+                          onClick={() => editorRef.current?.tableHighlightCell('clear')}
+                          className="w-4 h-4 rounded-full bg-[var(--ns-surface)] ring-1 ring-inset ring-black/[0.1] flex items-center justify-center text-rose-500 font-bold text-[8px] hover:scale-110 transition-transform"
+                          title="Clear fill"
                         >
-                          Row Above
-                        </Button>
-                        <Button
-                          onClick={() => editorRef.current?.tableAddRow(false)}
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-[10px] font-kalam bg-white border border-[#2d2d2d] text-[#2d2d2d] hover:bg-slate-50 shadow-sm px-2 pt-0.5"
-                        >
-                          Row Below
-                        </Button>
-                        <Button
-                          onClick={() => editorRef.current?.tableDeleteRow()}
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-[10px] font-kalam bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 shadow-sm px-2 pt-0.5"
-                        >
-                          Delete Row
-                        </Button>
+                          ×
+                        </button>
                       </div>
-                      <div className="h-4 w-[1px] bg-[#2d2d2d]/15 mx-1" />
-                      <div className="flex items-center gap-1">
-                        <Button
-                          onClick={() => editorRef.current?.tableAddColumn(true)}
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-[10px] font-kalam bg-white border border-[#2d2d2d] text-[#2d2d2d] hover:bg-slate-50 shadow-sm px-2 pt-0.5"
-                        >
-                          Col Left
-                        </Button>
-                        <Button
-                          onClick={() => editorRef.current?.tableAddColumn(false)}
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-[10px] font-kalam bg-white border border-[#2d2d2d] text-[#2d2d2d] hover:bg-slate-50 shadow-sm px-2 pt-0.5"
-                        >
-                          Col Right
-                        </Button>
-                        <Button
-                          onClick={() => editorRef.current?.tableDeleteColumn()}
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-[10px] font-kalam bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 shadow-sm px-2 pt-0.5"
-                        >
-                          Delete Col
-                        </Button>
-                      </div>
-                      <div className="h-4 w-[1px] bg-[#2d2d2d]/15 mx-1" />
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-kalam text-[10px] text-slate-500">Fill:</span>
-                        <button onClick={() => editorRef.current?.tableHighlightCell('#fef9c3')} className="w-4 h-4 rounded-full bg-[#fef9c3] border border-[#2d2d2d]/20" title="Yellow Fill" />
-                        <button onClick={() => editorRef.current?.tableHighlightCell('#d1fae5')} className="w-4 h-4 rounded-full bg-[#d1fae5] border border-[#2d2d2d]/20" title="Green Fill" />
-                        <button onClick={() => editorRef.current?.tableHighlightCell('#dbeafe')} className="w-4 h-4 rounded-full bg-[#dbeafe] border border-[#2d2d2d]/20" title="Blue Fill" />
-                        <button onClick={() => editorRef.current?.tableHighlightCell('#fce7f3')} className="w-4 h-4 rounded-full bg-[#fce7f3] border border-[#2d2d2d]/20" title="Pink Fill" />
-                        <button onClick={() => editorRef.current?.tableHighlightCell('#ffedd5')} className="w-4 h-4 rounded-full bg-[#ffedd5] border border-[#2d2d2d]/20" title="Orange Fill" />
-                        <button onClick={() => editorRef.current?.tableHighlightCell('clear')} className="w-4 h-4 rounded-full border border-red-400 bg-white flex items-center justify-center text-red-500 font-bold text-[8px]" title="Clear Fill">×</button>
-                      </div>
-                      <div className="h-4 w-[1px] bg-[#2d2d2d]/15 mx-1" />
+
                       <Button
                         onClick={() => editorRef.current?.tableDelete()}
                         variant="ghost"
                         size="sm"
-                        className="h-7 text-[10px] font-kalam bg-red-100 border border-red-400 text-red-700 hover:bg-red-200 shadow-sm px-2 pt-0.5 ml-auto animate-pulse"
+                        className={cn(NS.tableChip, 'ml-auto text-rose-600 hover:text-rose-700 hover:bg-rose-50')}
                       >
                         Delete Table
                       </Button>
                     </div>
                   )}
 
-                  {/* AI Assistant panel & Original/Refined Toggle */}
-                  <div className="flex items-center justify-between gap-1.5 p-2 bg-[#fdfbf7] border border-dashed border-[#e8dac0] rounded-xl shrink-0 flex-wrap">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-                      <span className="font-kalam text-[11px] font-bold text-amber-700 mr-2">AI Copilot:</span>
-                      <div className="flex gap-1.5 flex-wrap">
+                  {/* Toolbar row 3 — AI Copilot & Original/Refined toggle */}
+                  <div className="flex items-center justify-between gap-1.5 shrink-0 flex-wrap">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <Sparkles className="w-3.5 h-3.5 text-[var(--ns-accent-line)] shrink-0" />
+                      <span className="text-[11.5px] font-medium text-[var(--ns-ink-soft)] mr-1.5">AI Copilot</span>
+                      <Button
+                        onClick={() => runAiHelper('summarize')}
+                        disabled={isAiLoading}
+                        variant="ghost"
+                        size="sm"
+                        className={NS.toolChip}
+                      >
+                        Summarize
+                      </Button>
+                      <Button
+                        onClick={() => runAiHelper('refine')}
+                        disabled={isAiLoading}
+                        variant="ghost"
+                        size="sm"
+                        className={NS.toolChip}
+                      >
+                        Refine Specs
+                      </Button>
+                      <Button
+                        onClick={() => runAiHelper('refine-layman')}
+                        disabled={isAiLoading}
+                        variant="ghost"
+                        size="sm"
+                        className={NS.toolChip}
+                      >
+                        <Sparkles className="w-3 h-3" /> Refine Layman Notes
+                      </Button>
+                      {editFolder === 'Client Meetings' && (
                         <Button
-                          onClick={() => runAiHelper('summarize')}
+                          onClick={() => runAiHelper('extract-meeting')}
                           disabled={isAiLoading}
+                          variant="ghost"
                           size="sm"
-                          className="h-6 text-[9px] font-kalam bg-white border border-[#2d2d2d] text-[#2d2d2d] hover:bg-slate-50 shadow-sm"
+                          className={NS.toolChip}
                         >
-                          Summarize
+                          Extract Meetings
                         </Button>
-                        <Button
-                          onClick={() => runAiHelper('refine')}
-                          disabled={isAiLoading}
-                          size="sm"
-                          className="h-6 text-[9px] font-kalam bg-white border border-[#2d2d2d] text-[#2d2d2d] hover:bg-slate-50 shadow-sm"
-                        >
-                          Refine Specs
-                        </Button>
-                        <Button
-                          onClick={() => runAiHelper('refine-layman')}
-                          disabled={isAiLoading}
-                          size="sm"
-                          className="h-6 text-[9px] font-kalam bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 shadow-sm"
-                        >
-                          Refine Layman Notes ✨
-                        </Button>
-                        {editFolder === 'Client Meetings' && (
-                          <Button
-                            onClick={() => runAiHelper('extract-meeting')}
-                            disabled={isAiLoading}
-                            size="sm"
-                            className="h-6 text-[9px] font-kalam bg-amber-50 border border-[#d4a574] text-amber-800 hover:bg-amber-100 shadow-sm"
-                          >
-                            Extract Meetings
-                          </Button>
-                        )}
-                      </div>
-                      {isAiLoading && <div className="w-3.5 h-3.5 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" />}
+                      )}
+                      {isAiLoading && (
+                        <div className="w-3.5 h-3.5 ml-1 rounded-full border-2 border-[var(--ns-accent-line)] border-t-transparent animate-spin" />
+                      )}
                     </div>
 
                     {/* Original vs Refined Sync Toggle Pills */}
                     {(editOriginalContent || editRefinedContent) && (
-                      <div className="flex items-center gap-1 bg-[#2d2d2d]/5 p-0.5 rounded-lg border border-[#2d2d2d]/10">
-                        <button
-                          onClick={() => handleToggleNoteTab('original')}
-                          className={`font-kalam text-[10px] px-2 py-0.5 rounded-md transition-all font-bold ${
-                            noteTab === 'original'
-                              ? 'bg-[#2d2d2d] text-white shadow-sm'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          📜 Original Note
-                        </button>
-                        <button
-                          onClick={() => handleToggleNoteTab('refined')}
-                          className={`font-kalam text-[10px] px-2 py-0.5 rounded-md transition-all font-bold ${
-                            noteTab === 'refined'
-                              ? 'bg-purple-700 text-white shadow-sm'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          ✨ Refined Note
-                        </button>
+                      <div className="flex items-center gap-0.5 p-0.5 rounded-full bg-[var(--ns-surface-muted)]">
+                        {([['original', 'Original'], ['refined', 'Refined']] as const).map(([key, label]) => (
+                          <button
+                            key={key}
+                            onClick={() => handleToggleNoteTab(key)}
+                            className={cn(
+                              'px-2.5 py-1 rounded-full text-[11px] transition-colors',
+                              noteTab === key
+                                ? 'bg-[var(--ns-surface)] text-[var(--ns-ink)] font-medium shadow-[var(--ns-shadow-card)]'
+                                : 'text-[var(--ns-ink-muted)] hover:text-[var(--ns-ink)]'
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>
 
                   {/* Main Content Area: Editor vs Freeform Canvas */}
-                  <div className={`flex-1 relative border-2 border-[#2d2d2d]/10 rounded-xl overflow-hidden shadow-inner p-1 flex flex-col ${
+                  <div className={`flex-1 relative rounded-[var(--ns-radius-md)] overflow-hidden bg-[var(--ns-surface-sunken)] p-1 flex flex-col ${
                     isFocusMode ? "min-h-0 h-full" : "min-h-[300px] max-h-[600px]"
                   }`}>
                     {/* Smart Scroll Floating TOC */}
                     {headings.length > 0 && editorStats.words > 500 && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-1.5 py-3 px-1.5 bg-[#fefdfb]/80 backdrop-blur-sm border-2 border-[#2d2d2d]/10 rounded-full shadow-lg max-h-[80%] overflow-y-auto">
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-1.5 py-3 px-1.5 bg-[var(--ns-surface)]/85 backdrop-blur-sm rounded-full shadow-[var(--ns-shadow-pop)] max-h-[80%] overflow-y-auto">
                         {headings.map((h, i) => (
                           <button
                             key={i}
@@ -2102,12 +2370,12 @@ export default function FullProjectNotesPage() {
                             title={h.text}
                           >
                             <span className={`rounded-full transition-all duration-150 ${
-                              h.tag === 'h1' ? 'w-3 h-1 bg-[#b45309]' :
-                              h.tag === 'h2' ? 'w-2 h-1 bg-[#d97706]' :
-                              'w-1.5 h-0.5 bg-[#f59e0b]/70'
-                            } group-hover:bg-[#2d2d2d] group-hover:w-3.5`} />
-                            
-                            <span className="pointer-events-none absolute right-7 opacity-0 group-hover:opacity-100 transition-opacity bg-[#2d2d2d] text-white text-[10px] font-kalam py-1 px-2.5 rounded-lg whitespace-nowrap shadow-md border border-slate-700">
+                              h.tag === 'h1' ? 'w-3 h-1 bg-[var(--ns-accent)]' :
+                              h.tag === 'h2' ? 'w-2 h-1 bg-[var(--ns-accent-line)]' :
+                              'w-1.5 h-0.5 bg-[var(--ns-ink-muted)]'
+                            } group-hover:bg-[var(--ns-ink)] group-hover:w-3.5`} />
+
+                            <span className="pointer-events-none absolute right-7 opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--ns-ink)] text-white text-[10px] py-1 px-2.5 rounded-lg whitespace-nowrap shadow-[var(--ns-shadow-pop)]">
                               {h.text}
                             </span>
                           </button>
@@ -2115,14 +2383,14 @@ export default function FullProjectNotesPage() {
                       </div>
                     )}
 
-                    {/* Style Lab Glassmorphic Overlay */}
+                    {/* Style Lab Overlay */}
                     <AnimatePresence>
                       {isTypographyOpen && (
                         <motion.div
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           exit={{ opacity: 0 }}
-                          className="absolute inset-0 bg-[#2d2d2d]/10 backdrop-blur-sm z-40 flex items-center justify-center p-4"
+                          className="absolute inset-0 bg-[var(--ns-ink)]/10 backdrop-blur-sm z-40 flex items-center justify-center p-4"
                           onClick={() => setIsTypographyOpen(false)}
                         >
                           <motion.div
@@ -2130,38 +2398,44 @@ export default function FullProjectNotesPage() {
                             animate={{ scale: 1, y: 0 }}
                             exit={{ scale: 0.95, y: 10 }}
                             transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-                            className="bg-white/80 backdrop-blur-md border-2 border-[#2d2d2d] rounded-2xl p-5 w-80 shadow-[6px_6px_0px_rgba(45,45,45,1)] space-y-4"
+                            className="bg-[var(--ns-surface)] rounded-[var(--ns-radius)] p-5 w-80 shadow-[var(--ns-shadow-pop)] space-y-4"
                             onClick={e => e.stopPropagation()}
                           >
-                            <div className="flex items-center justify-between border-b pb-2 border-[#2d2d2d]/10">
-                              <h3 className="font-caveat text-2xl font-bold text-[#2d2d2d] flex items-center gap-1.5">
-                                <Palette className="w-5 h-5 text-amber-500" /> Typography Settings
+                            <div className="flex items-center justify-between pb-2.5 border-b border-[var(--ns-hairline)]">
+                              <h3 className="text-[15px] font-semibold text-[var(--ns-ink)] flex items-center gap-1.5">
+                                <Palette className="w-4 h-4 text-[var(--ns-accent-line)]" /> Style Lab
                               </h3>
-                              <button className="text-slate-400 hover:text-[#2d2d2d] font-bold text-lg leading-none" onClick={() => setIsTypographyOpen(false)}>×</button>
+                              <button
+                                className="w-6 h-6 rounded-full flex items-center justify-center text-[var(--ns-ink-muted)] hover:text-[var(--ns-ink)] hover:bg-black/[0.05] transition-colors text-base leading-none"
+                                onClick={() => setIsTypographyOpen(false)}
+                              >
+                                ×
+                              </button>
                             </div>
 
                             <div className="space-y-2">
-                              <label className="font-kalam text-xs font-bold text-slate-500 uppercase tracking-wider block">Font Family</label>
+                              <label className={cn(NS.label, 'block')}>Font Family</label>
                               <div className="grid grid-cols-2 gap-2">
                                 {[
+                                  { id: 'sans', label: 'System Sans', style: 'font-sans' },
                                   { id: 'kalam', label: 'Kalam', style: 'font-kalam' },
                                   { id: 'caveat', label: 'Caveat', style: 'font-caveat' },
                                   { id: 'indie', label: 'Indie Flower', style: 'font-indie' },
                                   { id: 'patrick', label: 'Patrick Hand', style: 'font-patrick' },
                                   { id: 'architects', label: 'Architects', style: 'font-architects' },
-                                  { id: 'sans', label: 'System Sans', style: 'font-sans' },
                                 ].map(f => (
                                   <button
                                     key={f.id}
                                     onClick={() => setEditorFont(f.id)}
-                                    className={`p-2 rounded-xl border-2 text-left transition-all duration-200 ${
+                                    className={cn(
+                                      'p-2 rounded-[var(--ns-radius-sm)] text-left transition-colors',
                                       editorFont === f.id
-                                        ? 'bg-[#2d2d2d] text-white border-[#2d2d2d] shadow-sm'
-                                        : 'bg-white/60 hover:bg-white text-[#2d2d2d] border-[#2d2d2d]/10'
-                                    }`}
+                                        ? 'bg-[var(--ns-accent-soft)] text-[var(--ns-accent)]'
+                                        : 'bg-[var(--ns-surface-muted)] text-[var(--ns-ink-soft)] hover:bg-black/[0.05]'
+                                    )}
                                   >
-                                    <p className="text-xs font-bold font-kalam leading-tight">{f.label}</p>
-                                    <p className={`${f.style} text-[9px] truncate mt-0.5 opacity-80`}>The quick brown fox</p>
+                                    <p className="text-[11.5px] font-medium leading-tight">{f.label}</p>
+                                    <p className={`${f.style} text-[9px] truncate mt-0.5 opacity-70`}>The quick brown fox</p>
                                   </button>
                                 ))}
                               </div>
@@ -2169,24 +2443,24 @@ export default function FullProjectNotesPage() {
 
                             <div className="space-y-2">
                               <div className="flex justify-between items-center">
-                                <label className="font-kalam text-xs font-bold text-slate-500 uppercase tracking-wider">Font Size</label>
-                                <span className="font-kalam text-xs font-bold text-[#2d2d2d] bg-white/80 border border-slate-200 px-2 py-0.5 rounded-lg">{editorFontSize}px</span>
+                                <label className={NS.label}>Font Size</label>
+                                <span className="text-[11px] font-medium text-[var(--ns-ink)] bg-[var(--ns-surface-muted)] px-2 py-0.5 rounded-full tabular-nums">{editorFontSize}px</span>
                               </div>
                               <div className="flex items-center gap-3">
-                                <span className="font-kalam text-[10px] text-slate-400 font-bold">A</span>
+                                <span className="text-[10px] text-[var(--ns-ink-muted)]">A</span>
                                 <input
                                   type="range"
                                   min="12"
                                   max="28"
                                   value={editorFontSize}
                                   onChange={e => setEditorFontSize(parseInt(e.target.value))}
-                                  className="flex-1 accent-[#2d2d2d] cursor-pointer"
+                                  className="flex-1 accent-[var(--ns-ink)] cursor-pointer"
                                 />
-                                <span className="font-kalam text-base text-slate-700 font-bold">A</span>
+                                <span className="text-base text-[var(--ns-ink-soft)]">A</span>
                               </div>
                             </div>
 
-                            <Button onClick={() => setIsTypographyOpen(false)} className="w-full journal-btn-primary py-2 text-xs pt-1.5">
+                            <Button onClick={() => setIsTypographyOpen(false)} className={cn(NS.inkBtn, 'w-full h-9')}>
                               Apply settings
                             </Button>
                           </motion.div>
@@ -2216,14 +2490,14 @@ export default function FullProjectNotesPage() {
                       {/* Freeform Canvas Layer (tldr style) */}
                       {isCanvasActive && (
                         <div
-                          className="absolute inset-0 bg-slate-50/70 backdrop-blur-[1px] z-20 overflow-auto p-4 border-2 border-dashed border-amber-400 rounded-lg select-none"
+                          className="absolute inset-0 bg-[var(--ns-surface-muted)]/70 backdrop-blur-[1px] z-20 overflow-auto p-4 rounded-[var(--ns-radius-md)] ring-1 ring-inset ring-[var(--ns-accent-line)]/40 select-none"
                           onDoubleClick={(e) => {
                             const rect = e.currentTarget.getBoundingClientRect();
                             addCanvasBlock(e.clientX - rect.left, e.clientY - rect.top);
                           }}
                         >
-                          <div className="absolute top-2 left-2 bg-amber-100 border border-amber-300 text-amber-900 font-kalam text-[10px] px-2.5 py-1 rounded-full shadow-sm pointer-events-none font-bold">
-                            ✍️ Canvas Active — Double click empty space to write note blocks, select 2+ items & click Group (⌘G)
+                          <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-[var(--ns-accent-soft)] text-[var(--ns-accent)] text-[10.5px] px-2.5 py-1 rounded-full shadow-[var(--ns-shadow-card)] pointer-events-none font-medium">
+                            <Pencil className="w-3 h-3" /> Canvas active — double click empty space to add a block, select 2+ &amp; Group (⌘G)
                           </div>
 
                           {/* Render Canvas Groups */}
@@ -2231,13 +2505,13 @@ export default function FullProjectNotesPage() {
                             <div
                               key={group.id}
                               style={{ left: group.x, top: group.y, width: group.width, height: group.height }}
-                              className="absolute border-2 border-dashed border-purple-500 rounded-2xl bg-purple-50/40 p-2 shadow-sm pointer-events-auto"
+                              className="absolute rounded-[var(--ns-radius-md)] bg-[var(--ns-surface)]/60 ring-1 ring-inset ring-[var(--ns-hairline-strong)] p-2 shadow-[var(--ns-shadow-card)] pointer-events-auto"
                             >
-                              <div className="flex items-center justify-between font-kalam text-xs font-bold text-purple-900 bg-purple-100/90 px-2 py-0.5 rounded-lg border border-purple-200 mb-2">
-                                <span className="flex items-center gap-1">📦 {group.title}</span>
+                              <div className="flex items-center justify-between text-[11px] font-medium text-[var(--ns-ink-soft)] bg-[var(--ns-surface-muted)] px-2 py-1 rounded-full mb-2">
+                                <span className="flex items-center gap-1.5 truncate"><Layers className="w-3 h-3 shrink-0" /> {group.title}</span>
                                 <button
                                   onClick={() => ungroupBlocks(group.id)}
-                                  className="text-purple-600 hover:text-purple-950 text-[10px] underline ml-2"
+                                  className="text-[10px] text-[var(--ns-ink-muted)] hover:text-[var(--ns-ink)] ml-2 shrink-0"
                                 >
                                   Ungroup
                                 </button>
@@ -2255,32 +2529,33 @@ export default function FullProjectNotesPage() {
                                   left: block.x,
                                   top: block.y,
                                   width: block.width,
-                                  backgroundColor: block.color,
+                                  backgroundColor: CANVAS_LEGACY_FILLS[block.color] ?? block.color,
                                 }}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   toggleSelectBlock(block.id, e.shiftKey || e.metaKey || e.ctrlKey);
                                 }}
-                                className={`absolute p-3 rounded-2xl border-2 shadow-[3px_3px_0px_rgba(45,45,45,1)] transition-all cursor-move ${
-                                  isSelected ? 'border-purple-600 ring-2 ring-purple-400' : 'border-[#2d2d2d]'
-                                }`}
+                                className={cn(
+                                  'absolute p-3 rounded-[var(--ns-radius-md)] shadow-[var(--ns-shadow-card)] transition-shadow cursor-move',
+                                  isSelected
+                                    ? 'ring-2 ring-[var(--ns-accent-line)] shadow-[var(--ns-shadow-pop)]'
+                                    : 'ring-1 ring-inset ring-black/[0.06]'
+                                )}
                               >
-                                <div className="flex items-center justify-between gap-1 border-b border-[#2d2d2d]/10 pb-1 mb-2">
-                                  <span className="font-kalam text-[10px] font-bold text-slate-600">Note Card</span>
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); deleteCanvasBlock(block.id); }}
-                                      className="text-red-500 font-bold text-xs hover:text-red-700 px-1"
-                                    >
-                                      ×
-                                    </button>
-                                  </div>
+                                <div className="flex items-center justify-between gap-1 border-b border-black/[0.06] pb-1 mb-2">
+                                  <span className="text-[10.5px] font-medium text-[var(--ns-ink-soft)]">Note Card</span>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); deleteCanvasBlock(block.id); }}
+                                    className="text-rose-500 hover:text-rose-700 text-xs leading-none px-1"
+                                  >
+                                    ×
+                                  </button>
                                 </div>
                                 <textarea
                                   value={block.content}
                                   onChange={(e) => updateCanvasBlock(block.id, { content: e.target.value })}
                                   placeholder="Write notes here..."
-                                  className="w-full bg-transparent font-kalam text-xs outline-none resize-none leading-relaxed min-h-[60px]"
+                                  className="w-full bg-transparent text-[12px] text-[var(--ns-ink)] placeholder:text-[var(--ns-ink-muted)] outline-none resize-none leading-relaxed min-h-[60px]"
                                 />
                               </div>
                             );
@@ -2290,43 +2565,40 @@ export default function FullProjectNotesPage() {
                     </div>
 
                     {/* Word count / reading time footer */}
-                    <div className="absolute bottom-2 right-3 flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-[#2d2d2d]/10 rounded-full px-3 py-1 shadow-sm pointer-events-none z-30">
-                      <span className="font-kalam text-[10px] text-slate-500">{editorStats.words} words</span>
-                      <span className="text-slate-300">·</span>
-                      <span className="font-kalam text-[10px] text-slate-500">{editorStats.chars} chars</span>
-                      <span className="text-slate-300">·</span>
-                      <span className="font-kalam text-[10px] text-slate-500">{editorStats.readingMins} min read</span>
+                    <div className="absolute bottom-2 right-3 flex items-center gap-1.5 bg-[var(--ns-surface)]/90 backdrop-blur-sm rounded-full px-3 py-1 shadow-[var(--ns-shadow-card)] pointer-events-none z-30 text-[10.5px] text-[var(--ns-ink-muted)] tabular-nums">
+                      <span>{editorStats.words} words</span>
+                      <span>·</span>
+                      <span>{editorStats.chars} chars</span>
+                      <span>·</span>
+                      <span>{editorStats.readingMins} min read</span>
                     </div>
                   </div>
 
                   {/* Tags section */}
-                  <div className="space-y-1">
-                    <label className="font-kalam text-xs font-bold text-slate-500 flex items-center gap-1">
-                      <Tag className="w-3.5 h-3.5" /> Tags
+                  <div className="space-y-1.5 shrink-0">
+                    <label className={cn(NS.label, 'flex items-center gap-1.5')}>
+                      <Tag className="w-3 h-3" /> Tags
                     </label>
                     <div className="flex items-center gap-2">
-                      <div className="flex-1 flex flex-wrap gap-1 border border-[#2d2d2d]/10 p-1.5 rounded-lg min-h-8 bg-slate-50">
+                      <div className="flex-1 flex flex-wrap items-center gap-1 p-1.5 rounded-[var(--ns-radius-sm)] min-h-8 bg-[var(--ns-surface-muted)]">
                         {editTags.map(t => {
-                          const tagColors = [
-                            { bg: '#ffedd5', text: '#c2410c', border: '#fed7aa' }, // Peach
-                            { bg: '#dbeafe', text: '#1d4ed8', border: '#bfdbfe' }, // Blue
-                            { bg: '#d1fae5', text: '#047857', border: '#a7f3d0' }, // Green
-                            { bg: '#f3e8ff', text: '#6b21a8', border: '#e9d5ff' }  // Purple
-                          ];
                           const hash = t.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-                          const color = tagColors[hash % tagColors.length];
+                          const tone = TAG_PALETTE[hash % TAG_PALETTE.length];
                           return (
                             <Badge
                               key={t}
-                              style={{ backgroundColor: color.bg, color: color.text, borderColor: color.border }}
-                              className="font-kalam text-[10px] flex items-center gap-1 px-2.5 py-0.5 rounded-full border shadow-sm"
+                              style={{
+                                backgroundColor: `var(${tone.bg}, ${tone.bgFallback})`,
+                                color: `var(${tone.fg}, ${tone.fgFallback})`,
+                              }}
+                              className="text-[10.5px] font-medium flex items-center gap-1 px-2.5 py-0.5 rounded-full border-0 shadow-none"
                             >
                               {t}
-                              <button onClick={() => removeTag(t)} className="opacity-60 hover:opacity-100 font-bold text-xs ml-1">×</button>
+                              <button onClick={() => removeTag(t)} className="opacity-50 hover:opacity-100 text-[11px] leading-none ml-0.5">×</button>
                             </Badge>
                           );
                         })}
-                        {editTags.length === 0 && <span className="text-[10px] font-kalam text-slate-400 italic">No tags added</span>}
+                        {editTags.length === 0 && <span className="text-[11px] text-[var(--ns-ink-muted)] italic">No tags added</span>}
                       </div>
                       <div className="flex gap-1 shrink-0">
                         <Input
@@ -2334,61 +2606,60 @@ export default function FullProjectNotesPage() {
                           onChange={e => setTagInput(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter') addTag(); }}
                           placeholder="Add tag..."
-                          className="h-8 w-24 text-xs font-kalam border-[#2d2d2d]/30"
+                          className={cn(NS.softInput, 'h-8 w-24')}
                         />
-                        <Button onClick={addTag} size="sm" className="h-8 px-2 font-kalam bg-[#2d2d2d] text-white hover:bg-slate-800">Add</Button>
+                        <Button onClick={addTag} size="sm" className={cn(NS.inkBtn, 'h-8 px-3')}>Add</Button>
                       </div>
                     </div>
                   </div>
 
                   {/* Backlinks Section */}
-                  <div className="space-y-1.5 border-t border-[#2d2d2d]/10 pt-2 shrink-0">
-                    <label className="font-kalam text-xs font-bold text-slate-500 flex items-center gap-1">
-                      <Link2 className="w-3.5 h-3.5 text-blue-500" /> Document Backlinks
+                  <div className="space-y-1.5 border-t border-[var(--ns-hairline)] pt-2.5 shrink-0">
+                    <label className={cn(NS.label, 'flex items-center gap-1.5')}>
+                      <Link2 className="w-3 h-3" /> Document Backlinks
                     </label>
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 flex flex-wrap gap-1 p-1 bg-slate-50 border border-slate-100 rounded-lg min-h-8">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 flex flex-wrap items-center gap-1 p-1.5 rounded-[var(--ns-radius-sm)] min-h-8 bg-[var(--ns-surface-muted)]">
                         {editBacklinks.map(b => (
                           <Badge
                             key={b}
-                            variant="outline"
-                            className="font-kalam text-[10px] flex items-center gap-1.5 border-blue-200 text-blue-700 bg-blue-50/80 hover:bg-blue-50 px-2.5 py-0.5 rounded-full shadow-sm"
+                            className="text-[10.5px] font-medium flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border-0 shadow-none bg-[var(--ns-surface)] text-[var(--ns-ink-soft)]"
                           >
-                            <Link2 className="w-3.5 h-3.5 text-blue-500" />
+                            <Link2 className="w-3 h-3 text-[var(--ns-ink-muted)]" />
                             {notes.find(n => n.id === b)?.title || 'Linked Note'}
-                            <button onClick={() => removeBacklink(b)} className="text-red-500 hover:text-red-700 font-bold ml-1">×</button>
+                            <button onClick={() => removeBacklink(b)} className="text-[var(--ns-ink-muted)] hover:text-rose-600 text-[11px] leading-none ml-0.5">×</button>
                           </Badge>
                         ))}
-                        {editBacklinks.length === 0 && <span className="text-[10px] font-kalam text-slate-400 italic">No backlinks</span>}
+                        {editBacklinks.length === 0 && <span className="text-[11px] text-[var(--ns-ink-muted)] italic">No backlinks</span>}
                       </div>
                       <div className="flex gap-1 shrink-0">
                         <Select value={backlinkTarget} onValueChange={setBacklinkTarget}>
-                          <SelectTrigger className="h-8 w-36 text-xs font-kalam border-[#2d2d2d]/30">
+                          <SelectTrigger className={cn(NS.softInput, 'h-8 w-36')}>
                             <SelectValue placeholder="Link note..." />
                           </SelectTrigger>
-                          <SelectContent className="bg-[#fefdfb] border-2 border-[#2d2d2d] font-kalam">
+                          <SelectContent className="bg-[var(--ns-surface)] border-0 shadow-[var(--ns-shadow-pop)] rounded-[var(--ns-radius-md)]">
                             <SelectItem value="none">Choose note...</SelectItem>
                             {notes.filter(n => n.id !== selectedNoteId).map(n => (
                               <SelectItem key={n.id} value={n.id}>{n.title}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
-                        <Button onClick={addBacklink} size="sm" className="h-8 px-2 font-kalam bg-blue-600 text-white hover:bg-blue-700">Link</Button>
+                        <Button onClick={addBacklink} size="sm" className={cn(NS.inkBtn, 'h-8 px-3')}>Link</Button>
                       </div>
                     </div>
                   </div>
 
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
-                  <FileText className="w-16 h-16 text-slate-300 mb-2" />
-                  <h3 className="font-caveat text-2xl text-slate-500 font-bold">No Note Selected</h3>
-                  <p className="font-kalam text-sm text-slate-400 max-w-xs mb-4">Choose a note from the list, or create a brand new note to get started.</p>
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-[var(--ns-surface-sunken)] rounded-[var(--ns-radius)]">
+                  <FileText className="w-14 h-14 text-[var(--ns-hairline-strong)] mb-3" />
+                  <h3 className="text-[16px] font-semibold text-[var(--ns-ink-soft)]">No note selected</h3>
+                  <p className="text-[13px] text-[var(--ns-ink-muted)] max-w-xs mb-4 mt-1">Choose a note from the list, or create a brand new note to get started.</p>
                   <div className="flex gap-2">
-                    <Button onClick={() => createNewNote()} className="journal-btn-primary"><Plus className="w-4 h-4 mr-1.5" /> Create Note</Button>
+                    <Button onClick={() => createNewNote()} className={cn(NS.inkBtn, 'h-9 px-4 gap-1.5')}><Plus className="w-4 h-4" /> Create Note</Button>
                     {isFocusMode && (
-                      <Button onClick={() => setIsFocusMode(false)} variant="outline" className="font-kalam border-2 border-[#2d2d2d] text-[#2d2d2d] bg-white rounded-xl shadow-sm hover:bg-slate-50">
-                        <Minimize2 className="w-4 h-4 mr-1.5" /> Exit Full Screen
+                      <Button onClick={() => setIsFocusMode(false)} variant="ghost" className={cn(NS.chip, 'h-9 px-4')}>
+                        <Minimize2 className="w-4 h-4" /> Exit Full Screen
                       </Button>
                     )}
                   </div>
@@ -2399,9 +2670,9 @@ export default function FullProjectNotesPage() {
           </div>
         ) : (
           /* Day-wise Timeline View tab */
-          <div className="flex-1 overflow-y-auto space-y-8 max-w-4xl mx-auto py-4 bg-white/60 p-6 rounded-2xl border-2 border-[#2d2d2d]/10 shadow-sm w-full min-h-0">
-            <h2 className="font-caveat text-4xl font-bold text-[#2d2d2d] flex items-center gap-2 border-b border-[#2d2d2d]/10 pb-2">
-              <CalendarDays className="w-8 h-8 text-amber-600" /> Daily Note Stream (IST)
+          <div className="flex-1 overflow-y-auto max-w-4xl mx-auto p-6 bg-[var(--ns-surface)] rounded-[var(--ns-radius)] shadow-[var(--ns-shadow-shell)] w-full min-h-0">
+            <h2 className="text-[17px] font-semibold text-[var(--ns-ink)] flex items-center gap-2 border-b border-[var(--ns-hairline)] pb-3">
+              <CalendarDays className="w-4.5 h-4.5 text-[var(--ns-accent)]" /> Daily Note Stream (IST)
             </h2>
             <div className="space-y-8 mt-6">
               {notesByDay.map(([dayStr, dayNotes]) => {
@@ -2411,41 +2682,41 @@ export default function FullProjectNotesPage() {
                 const hasLinkedPair = morningNotes.length > 0 && eveningNotes.length > 0;
 
                 return (
-                  <div key={dayStr} className="relative border-l-4 border-amber-500 pl-6 space-y-4">
+                  <div key={dayStr} className="relative border-l-2 border-[var(--ns-hairline-strong)] pl-6 space-y-4">
                     {/* Timeline Dot */}
-                    <div className="absolute -left-[10px] top-1.5 w-4 h-4 rounded-full bg-amber-500 border-4 border-white ring-2 ring-amber-500/20" />
+                    <div className="absolute -left-[5px] top-2 w-2 h-2 rounded-full bg-[var(--ns-accent-line)] ring-4 ring-[var(--ns-surface)]" />
 
-                    <h3 className="font-caveat text-2xl font-bold text-slate-800 bg-amber-50 px-3 py-1 rounded-lg border border-amber-200/50 inline-block">
+                    <h3 className="text-[13px] font-semibold text-[var(--ns-ink)] bg-[var(--ns-surface-muted)] px-3 py-1 rounded-full inline-block">
                       {dayStr}
                     </h3>
 
                     {/* Side-by-side linked Morning / Evening Calls */}
                     {hasLinkedPair && (
-                      <div className="grid md:grid-cols-2 gap-4 p-4 rounded-2xl bg-[#fffef3] border-2 border-amber-200/60 shadow-sm relative overflow-hidden">
-                        <div className="absolute top-0 right-0 bg-amber-600 text-white font-kalam text-[10px] px-3 py-0.5 rounded-bl-xl font-bold uppercase tracking-wider">
-                          Linked Daily Sync 🔗
+                      <div className="grid md:grid-cols-2 gap-4 p-4 rounded-[var(--ns-radius-md)] bg-[var(--ns-accent-soft)] relative overflow-hidden">
+                        <div className="absolute top-0 right-0 flex items-center gap-1 bg-[var(--ns-accent)] text-white text-[9.5px] px-3 py-0.5 rounded-bl-[var(--ns-radius-sm)] font-medium uppercase tracking-[0.08em]">
+                          <Link2 className="w-2.5 h-2.5" /> Linked Daily Sync
                         </div>
 
                         {/* Morning Column */}
-                        <div className="space-y-2 border-r border-[#2d2d2d]/10 pr-4">
-                          <span className="font-kalam text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-full inline-block">🌅 Morning Call</span>
+                        <div className="space-y-2 md:border-r border-[var(--ns-hairline-strong)] md:pr-4">
+                          <span className="text-[11px] font-medium text-[var(--ns-ink-soft)] bg-[var(--ns-surface)] px-2.5 py-0.5 rounded-full inline-block">Morning Call</span>
                           {morningNotes.map(n => (
-                            <div key={n.id} className="p-3 bg-white border border-[#2d2d2d]/10 rounded-xl space-y-1">
-                              <h4 className="font-caveat text-lg font-bold text-slate-800 truncate">{n.title}</h4>
-                              <p className="font-kalam text-[11px] text-slate-500 line-clamp-3 leading-snug">{n.content}</p>
-                              <Button variant="link" onClick={() => { selectNote(n); setActiveTab('workspace'); }} className="h-6 p-0 font-kalam text-xs text-amber-700 hover:text-amber-800">Open in Workspace</Button>
+                            <div key={n.id} className="p-3 bg-[var(--ns-surface)] rounded-[var(--ns-radius-sm)] shadow-[var(--ns-shadow-card)] space-y-1">
+                              <h4 className="text-[13.5px] font-semibold text-[var(--ns-ink)] truncate">{n.title}</h4>
+                              <p className="text-[11.5px] text-[var(--ns-ink-muted)] line-clamp-3 leading-snug">{n.content}</p>
+                              <Button variant="link" onClick={() => { selectNote(n); setActiveTab('workspace'); }} className="h-6 p-0 text-[11.5px] text-[var(--ns-accent)] hover:text-[var(--ns-accent-ink)]">Open in Workspace</Button>
                             </div>
                           ))}
                         </div>
 
                         {/* Evening Column */}
-                        <div className="space-y-2 pl-2">
-                          <span className="font-kalam text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full inline-block">🌌 Evening Call</span>
+                        <div className="space-y-2 md:pl-2">
+                          <span className="text-[11px] font-medium text-[var(--ns-ink-soft)] bg-[var(--ns-surface)] px-2.5 py-0.5 rounded-full inline-block">Evening Call</span>
                           {eveningNotes.map(n => (
-                            <div key={n.id} className="p-3 bg-white border border-[#2d2d2d]/10 rounded-xl space-y-1">
-                              <h4 className="font-caveat text-lg font-bold text-slate-800 truncate">{n.title}</h4>
-                              <p className="font-kalam text-[11px] text-slate-500 line-clamp-3 leading-snug">{n.content}</p>
-                              <Button variant="link" onClick={() => { selectNote(n); setActiveTab('workspace'); }} className="h-6 p-0 font-kalam text-xs text-amber-700 hover:text-amber-800">Open in Workspace</Button>
+                            <div key={n.id} className="p-3 bg-[var(--ns-surface)] rounded-[var(--ns-radius-sm)] shadow-[var(--ns-shadow-card)] space-y-1">
+                              <h4 className="text-[13.5px] font-semibold text-[var(--ns-ink)] truncate">{n.title}</h4>
+                              <p className="text-[11.5px] text-[var(--ns-ink-muted)] line-clamp-3 leading-snug">{n.content}</p>
+                              <Button variant="link" onClick={() => { selectNote(n); setActiveTab('workspace'); }} className="h-6 p-0 text-[11.5px] text-[var(--ns-accent)] hover:text-[var(--ns-accent-ink)]">Open in Workspace</Button>
                             </div>
                           ))}
                         </div>
@@ -2455,27 +2726,15 @@ export default function FullProjectNotesPage() {
                     {/* Remaining individual notes */}
                     {(remainingNotes.length > 0 || (!hasLinkedPair && (morningNotes.length > 0 || eveningNotes.length > 0))) && (
                       <div className="grid sm:grid-cols-2 gap-4">
-                        {!hasLinkedPair && [...morningNotes, ...eveningNotes].map(n => (
-                          <div key={n.id} className="p-4 bg-white border-2 border-[#2d2d2d]/10 rounded-2xl hover:border-amber-400 transition-all space-y-2">
-                            <div className="flex justify-between items-center">
-                              <Badge className="font-kalam text-[9px] bg-slate-50 text-slate-600">{n.folder}</Badge>
-                              {n.section && <Badge variant="secondary" className="font-kalam text-[9px] bg-purple-50 text-purple-700">{n.section}</Badge>}
+                        {[...(hasLinkedPair ? [] : [...morningNotes, ...eveningNotes]), ...remainingNotes].map(n => (
+                          <div key={n.id} className="p-4 bg-[var(--ns-surface)] rounded-[var(--ns-radius-md)] shadow-[var(--ns-shadow-card)] hover:shadow-[var(--ns-shadow-pop)] transition-shadow space-y-2">
+                            <div className="flex justify-between items-center gap-2">
+                              <Badge className="text-[9.5px] font-medium border-0 shadow-none bg-[var(--ns-surface-muted)] text-[var(--ns-ink-soft)]">{n.folder}</Badge>
+                              {n.section && <Badge className="text-[9.5px] font-medium border-0 shadow-none bg-[var(--ns-accent-soft)] text-[var(--ns-accent)]">{n.section}</Badge>}
                             </div>
-                            <h4 className="font-caveat text-xl font-bold text-slate-800 truncate">{n.title}</h4>
-                            <p className="font-kalam text-xs text-slate-500 line-clamp-3 leading-relaxed">{n.content}</p>
-                            <Button variant="link" onClick={() => { selectNote(n); setActiveTab('workspace'); }} className="h-6 p-0 font-kalam text-xs text-amber-700">Open in Workspace</Button>
-                          </div>
-                        ))}
-
-                        {remainingNotes.map(n => (
-                          <div key={n.id} className="p-4 bg-white border-2 border-[#2d2d2d]/10 rounded-2xl hover:border-amber-400 transition-all space-y-2">
-                            <div className="flex justify-between items-center">
-                              <Badge className="font-kalam text-[9px] bg-slate-50 text-slate-600">{n.folder}</Badge>
-                              {n.section && <Badge variant="secondary" className="font-kalam text-[9px] bg-purple-50 text-purple-700">{n.section}</Badge>}
-                            </div>
-                            <h4 className="font-caveat text-xl font-bold text-slate-800 truncate">{n.title}</h4>
-                            <p className="font-kalam text-xs text-slate-500 line-clamp-3 leading-relaxed">{n.content}</p>
-                            <Button variant="link" onClick={() => { selectNote(n); setActiveTab('workspace'); }} className="h-6 p-0 font-kalam text-xs text-amber-700">Open in Workspace</Button>
+                            <h4 className="text-[14px] font-semibold text-[var(--ns-ink)] truncate">{n.title}</h4>
+                            <p className="text-[12px] text-[var(--ns-ink-muted)] line-clamp-3 leading-relaxed">{n.content}</p>
+                            <Button variant="link" onClick={() => { selectNote(n); setActiveTab('workspace'); }} className="h-6 p-0 text-[11.5px] text-[var(--ns-accent)] hover:text-[var(--ns-accent-ink)]">Open in Workspace</Button>
                           </div>
                         ))}
                       </div>
@@ -2484,10 +2743,10 @@ export default function FullProjectNotesPage() {
                 );
               })}
               {notesByDay.length === 0 && (
-                <div className="text-center py-20 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-                  <FileText className="w-16 h-16 mx-auto text-slate-300 mb-2" />
-                  <h3 className="font-caveat text-2xl text-slate-500 font-bold">No Notes Logged Yet</h3>
-                  <p className="font-kalam text-sm text-slate-400">Add notes in the workspace to populate this timeline view</p>
+                <div className="text-center py-20 bg-[var(--ns-surface-sunken)] rounded-[var(--ns-radius)]">
+                  <FileText className="w-14 h-14 mx-auto text-[var(--ns-hairline-strong)] mb-3" />
+                  <h3 className="text-[16px] font-semibold text-[var(--ns-ink-soft)]">No notes logged yet</h3>
+                  <p className="text-[13px] text-[var(--ns-ink-muted)] mt-1">Add notes in the workspace to populate this timeline view</p>
                 </div>
               )}
             </div>
@@ -2503,7 +2762,7 @@ export default function FullProjectNotesPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[100] flex items-center justify-center p-3 md:p-6"
+            className="fixed inset-0 bg-[var(--ns-ink)]/85 backdrop-blur-md z-[100] flex items-center justify-center p-3 md:p-6"
             onClick={() => setPreviewImage(null)}
           >
             <motion.div
@@ -2511,48 +2770,48 @@ export default function FullProjectNotesPage() {
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.92, y: 15 }}
               transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-              className="bg-white border-2 border-[#2d2d2d] rounded-3xl w-full max-w-6xl max-h-[92vh] shadow-[10px_10px_0px_rgba(45,45,45,1)] flex flex-col md:flex-row overflow-hidden relative"
+              className="bg-[var(--ns-surface)] rounded-[var(--ns-radius)] w-full max-w-6xl max-h-[92vh] shadow-[var(--ns-shadow-pop)] flex flex-col md:flex-row overflow-hidden relative"
               onClick={e => e.stopPropagation()}
             >
               {/* Close Button */}
               <button
                 onClick={() => setPreviewImage(null)}
-                className="absolute top-4 right-4 w-9 h-9 rounded-full bg-slate-800 text-white hover:bg-slate-700 border-2 border-slate-600 flex items-center justify-center font-bold text-xl shadow-lg z-50 transition-transform hover:scale-110"
+                className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/50 text-white hover:bg-black/70 backdrop-blur-sm flex items-center justify-center text-xl leading-none z-50 transition-colors"
                 title="Close Preview (Esc)"
               >
                 ×
               </button>
 
               {/* Image Preview Viewport Container */}
-              <div className="flex-1 bg-slate-950 p-6 flex items-center justify-center relative min-h-[350px] md:min-h-[550px] overflow-auto">
+              <div className="flex-1 bg-[var(--ns-ink)] p-6 flex items-center justify-center relative min-h-[350px] md:min-h-[550px] overflow-auto">
                 <img
                   src={previewImage.src}
                   alt="Image full preview"
-                  className="max-w-full max-h-[80vh] w-auto h-auto object-contain rounded-xl shadow-2xl border-2 border-slate-800"
+                  className="max-w-full max-h-[80vh] w-auto h-auto object-contain rounded-[var(--ns-radius-md)] shadow-[var(--ns-shadow-pop)]"
                 />
               </div>
 
               {/* Image Notes / Caption Panel */}
-              <div className="w-full md:w-96 p-6 bg-[#fefdfb] border-t-2 md:border-t-0 md:border-l-2 border-[#2d2d2d] flex flex-col justify-between space-y-4 shrink-0 font-kalam">
+              <div className="w-full md:w-96 p-6 bg-[var(--ns-surface)] border-t md:border-t-0 md:border-l border-[var(--ns-hairline)] flex flex-col justify-between gap-4 shrink-0">
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b pb-3 border-[#2d2d2d]/10">
-                    <h3 className="font-caveat text-3xl font-bold text-[#2d2d2d] flex items-center gap-2">
-                      🖼️ Image Notes & Specs
+                  <div className="flex items-center justify-between border-b pb-3 border-[var(--ns-hairline)]">
+                    <h3 className="text-[16px] font-semibold text-[var(--ns-ink)] flex items-center gap-2">
+                      <ImageIcon className="w-4 h-4 text-[var(--ns-ink-muted)]" /> Image Notes &amp; Specs
                     </h3>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="font-kalam text-xs font-bold text-slate-600 uppercase tracking-wider block">Image Caption / Notes</label>
+                    <label className={cn(NS.label, 'block')}>Image Caption / Notes</label>
                     <textarea
                       value={previewCaptionInput}
                       onChange={e => setPreviewCaptionInput(e.target.value)}
                       placeholder="Write notes, requirements, or descriptions for this image..."
-                      className="w-full h-52 p-3 font-kalam text-xs leading-relaxed border-2 border-[#2d2d2d]/20 rounded-2xl bg-white focus:border-[#2d2d2d] outline-none resize-none shadow-inner"
+                      className="w-full h-52 p-3 text-[12.5px] leading-relaxed rounded-[var(--ns-radius-md)] bg-[var(--ns-surface-muted)] text-[var(--ns-ink)] placeholder:text-[var(--ns-ink-muted)] outline-none resize-none focus:ring-1 focus:ring-[var(--ns-hairline-strong)]"
                     />
                   </div>
                 </div>
 
-                <div className="space-y-2 pt-3 border-t border-[#2d2d2d]/10">
+                <div className="space-y-2 pt-3 border-t border-[var(--ns-hairline)]">
                   <Button
                     onClick={() => {
                       if (!previewImage) return;
@@ -2571,16 +2830,16 @@ export default function FullProjectNotesPage() {
                       editContentRef.current = updatedHtml;
                       handleSave({ content: updatedHtml });
                       setPreviewImage(null);
-                      toast.success('Image notes saved and synced! 🖼️');
+                      toast.success('Image notes saved and synced');
                     }}
-                    className="w-full journal-btn-primary py-2.5 text-xs font-kalam font-bold rounded-xl"
+                    className={cn(NS.inkBtn, 'w-full h-9')}
                   >
-                    Save & Sync Notes 💾
+                    Save &amp; Sync Notes
                   </Button>
                   <Button
                     onClick={() => setPreviewImage(null)}
-                    variant="outline"
-                    className="w-full font-kalam text-xs rounded-xl border-2 border-[#2d2d2d]"
+                    variant="ghost"
+                    className={cn(NS.chip, 'w-full h-9 justify-center')}
                   >
                     Close Preview
                   </Button>
@@ -2598,7 +2857,7 @@ export default function FullProjectNotesPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-[#2d2d2d]/30 backdrop-blur-sm z-50 flex items-start justify-center pt-[12vh] p-4"
+            className="fixed inset-0 bg-[var(--ns-ink)]/25 backdrop-blur-sm z-50 flex items-start justify-center pt-[12vh] p-4"
             onClick={() => setIsQuickSwitcherOpen(false)}
           >
             <motion.div
@@ -2606,25 +2865,25 @@ export default function FullProjectNotesPage() {
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.97, y: -8 }}
               transition={{ type: 'spring', damping: 28, stiffness: 380 }}
-              className="bg-white border-2 border-[#2d2d2d] rounded-2xl w-full max-w-lg shadow-[6px_6px_0px_rgba(45,45,45,1)] overflow-hidden"
+              className="bg-[var(--ns-surface)] rounded-[var(--ns-radius)] w-full max-w-lg shadow-[var(--ns-shadow-pop)] overflow-hidden"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex items-center gap-2 px-4 py-3 border-b-2 border-[#2d2d2d]/10">
-                <Search className="w-4 h-4 text-slate-400 shrink-0" />
+              <div className="flex items-center gap-2.5 px-4 py-3.5 border-b border-[var(--ns-hairline)]">
+                <Search className="w-4 h-4 text-[var(--ns-ink-muted)] shrink-0" />
                 <input
                   ref={quickSwitcherInputRef}
                   value={quickSwitcherQuery}
                   onChange={e => setQuickSwitcherQuery(e.target.value)}
                   placeholder="Jump to a note..."
-                  className="flex-1 bg-transparent outline-none font-kalam text-sm text-[#2d2d2d] placeholder:text-slate-400"
+                  className="flex-1 bg-transparent outline-none text-[14px] text-[var(--ns-ink)] placeholder:text-[var(--ns-ink-muted)]"
                 />
-                <button onClick={() => setIsQuickSwitcherOpen(false)} className="text-slate-300 hover:text-slate-500">
+                <button onClick={() => setIsQuickSwitcherOpen(false)} className="text-[var(--ns-ink-muted)] hover:text-[var(--ns-ink)] transition-colors">
                   <X className="w-4 h-4" />
                 </button>
               </div>
               <div className="max-h-80 overflow-y-auto p-2">
                 {!quickSwitcherQuery.trim() && quickSwitcherResults.length > 0 && (
-                  <p className="font-kalam text-[10px] uppercase tracking-wider text-slate-400 px-2 py-1">Recent</p>
+                  <p className={cn(NS.label, 'px-2 py-1.5')}>Recent</p>
                 )}
                 {quickSwitcherResults.map(n => (
                   <button
@@ -2634,17 +2893,17 @@ export default function FullProjectNotesPage() {
                       setActiveTab('workspace');
                       setIsQuickSwitcherOpen(false);
                     }}
-                    className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-[#fffacd] transition-colors flex items-center justify-between gap-2 group"
+                    className="w-full text-left px-3 py-2.5 rounded-[var(--ns-radius-md)] hover:bg-[var(--ns-accent-soft)] transition-colors flex items-center justify-between gap-2"
                   >
                     <div className="min-w-0">
-                      <p className="font-caveat text-lg font-bold text-[#2d2d2d] truncate">{n.title}</p>
-                      <p className="font-kalam text-[11px] text-slate-400 truncate">{n.folder}{n.section ? ` · ${n.section}` : ''}</p>
+                      <p className="text-[13.5px] font-medium text-[var(--ns-ink)] truncate">{n.title}</p>
+                      <p className="text-[11.5px] text-[var(--ns-ink-muted)] truncate">{n.folder}{n.section ? ` · ${n.section}` : ''}</p>
                     </div>
-                    {n.isFav && <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500 shrink-0" />}
+                    {n.isFav && <Star className="w-3.5 h-3.5 fill-[var(--ns-accent-line)] text-[var(--ns-accent-line)] shrink-0" />}
                   </button>
                 ))}
                 {quickSwitcherResults.length === 0 && (
-                  <p className="font-kalam text-xs text-slate-400 italic text-center py-10">No matching notes</p>
+                  <p className="text-[12.5px] text-[var(--ns-ink-muted)] italic text-center py-10">No matching notes</p>
                 )}
               </div>
             </motion.div>
@@ -2659,7 +2918,7 @@ export default function FullProjectNotesPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-[#2d2d2d]/30 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-[var(--ns-ink)]/25 backdrop-blur-sm z-50 flex items-center justify-center p-4"
             onClick={() => setIsShortcutsOpen(false)}
           >
             <motion.div
@@ -2667,16 +2926,21 @@ export default function FullProjectNotesPage() {
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95, y: 10 }}
               transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-              className="bg-white border-2 border-[#2d2d2d] rounded-2xl p-5 w-80 shadow-[6px_6px_0px_rgba(45,45,45,1)] space-y-3"
+              className="bg-[var(--ns-surface)] rounded-[var(--ns-radius)] p-5 w-80 shadow-[var(--ns-shadow-pop)] space-y-3"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between border-b pb-2 border-[#2d2d2d]/10">
-                <h3 className="font-caveat text-2xl font-bold text-[#2d2d2d] flex items-center gap-1.5">
-                  <Keyboard className="w-5 h-5 text-amber-500" /> Shortcuts
+              <div className="flex items-center justify-between border-b pb-2.5 border-[var(--ns-hairline)]">
+                <h3 className="text-[15px] font-semibold text-[var(--ns-ink)] flex items-center gap-1.5">
+                  <Keyboard className="w-4 h-4 text-[var(--ns-accent-line)]" /> Shortcuts
                 </h3>
-                <button className="text-slate-400 hover:text-[#2d2d2d] font-bold text-lg leading-none" onClick={() => setIsShortcutsOpen(false)}>×</button>
+                <button
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-[var(--ns-ink-muted)] hover:text-[var(--ns-ink)] hover:bg-black/[0.05] transition-colors text-base leading-none"
+                  onClick={() => setIsShortcutsOpen(false)}
+                >
+                  ×
+                </button>
               </div>
-              <div className="space-y-2 font-kalam text-xs text-slate-600">
+              <div className="space-y-2 text-[12.5px] text-[var(--ns-ink-soft)]">
                 {[
                   ['⌘ K', 'Jump to note'],
                   ['⌘ N', 'New note'],
@@ -2688,7 +2952,7 @@ export default function FullProjectNotesPage() {
                 ].map(([key, label]) => (
                   <div key={key} className="flex items-center justify-between">
                     <span>{label}</span>
-                    <kbd className="bg-slate-100 border border-slate-200 rounded px-2 py-0.5 text-[10px] text-slate-500">{key}</kbd>
+                    <kbd className="bg-[var(--ns-surface-muted)] rounded-md px-2 py-0.5 text-[10.5px] text-[var(--ns-ink-muted)]">{key}</kbd>
                   </div>
                 ))}
               </div>

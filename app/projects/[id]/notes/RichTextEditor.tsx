@@ -22,33 +22,62 @@ import React, { useRef, useEffect, useCallback, useImperativeHandle, forwardRef 
  * (e.g. file export, or older notes saved before this editor existed).
  */
 
-const compressImage = (dataUrl: string, maxWidth: number, maxHeight: number, callback: (compressedDataUrl: string) => void) => {
+// Size/quality ladder for pasted images. Notes are stored as a single HTML
+// string in `Note.content`, and MongoDB caps a document at 16MB — so the stored
+// source has to be big enough for a fullscreen preview to look sharp, yet small
+// enough that a note full of screenshots can't blow the limit. We walk down the
+// ladder until the base64 payload fits the byte budget, keeping the largest rung
+// that does. The previous fixed 800px / q0.70 was the reason no viewer could
+// ever render a pasted screenshot legibly.
+const IMAGE_LADDER = [
+  { maxEdge: 1600, quality: 0.78 },
+  { maxEdge: 1280, quality: 0.74 },
+  { maxEdge: 1024, quality: 0.68 },
+  { maxEdge: 800, quality: 0.62 },
+] as const;
+
+// ~900KB of base64 per image. Ten screenshots in one note still sits well under
+// the 16MB document ceiling.
+const IMAGE_BYTE_BUDGET = 900_000;
+
+const compressImage = (dataUrl: string, callback: (compressedDataUrl: string) => void) => {
   const img = new Image();
   img.onload = () => {
-    let width = img.width;
-    let height = img.height;
-
-    if (width > maxWidth) {
-      height = Math.round((height * maxWidth) / width);
-      width = maxWidth;
-    }
-    if (height > maxHeight) {
-      width = Math.round((width * maxHeight) / height);
-      height = maxHeight;
-    }
-
     const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-
     const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(img, 0, 0, width, height);
-      const compressed = canvas.toDataURL('image/jpeg', 0.7);
-      callback(compressed);
-    } else {
+    if (!ctx) {
       callback(dataUrl);
+      return;
     }
+
+    let best: string | null = null;
+
+    for (const rung of IMAGE_LADDER) {
+      let width = img.width;
+      let height = img.height;
+      const longest = Math.max(width, height);
+      if (longest > rung.maxEdge) {
+        const scale = rung.maxEdge / longest;
+        width = Math.max(1, Math.round(width * scale));
+        height = Math.max(1, Math.round(height * scale));
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      // JPEG has no alpha, so a transparent PNG composites onto whatever the
+      // canvas starts as — black. Paint paper first.
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const candidate = canvas.toDataURL('image/jpeg', rung.quality);
+      best = candidate;
+      if (candidate.length <= IMAGE_BYTE_BUDGET) break;
+      // Otherwise fall through to the next, smaller rung. If even the last rung
+      // is over budget we keep it — it's the smallest we produce.
+    }
+
+    callback(best ?? dataUrl);
   };
   img.onerror = () => {
     callback(dataUrl);
@@ -103,6 +132,10 @@ export interface RichTextEditorHandle {
   tableDeleteColumn: () => void;
   tableHighlightCell: (color: string) => void;
   tableDelete: () => void;
+  /** Recolour the markers of the list containing the caret. `null` clears the
+   *  override so markers fall back to the system colour. Returns false when the
+   *  caret isn't inside a list. */
+  setListMarkerColor: (color: string | null) => boolean;
 }
 
 interface RichTextEditorProps {
@@ -136,6 +169,21 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       while (node && node !== elRef.current) {
         if (node.nodeType === 1 && (node.nodeName === 'TD' || node.nodeName === 'TH')) {
           return node as HTMLTableCellElement;
+        }
+        node = node.parentNode;
+      }
+      return null;
+    };
+
+    // Innermost UL/OL containing the caret — so recolouring a nested list leaves
+    // its parent alone.
+    const getActiveList = (): HTMLElement | null => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return null;
+      let node: Node | null = sel.getRangeAt(0).startContainer;
+      while (node && node !== elRef.current) {
+        if (node.nodeType === 1 && (node.nodeName === 'UL' || node.nodeName === 'OL')) {
+          return node as HTMLElement;
         }
         node = node.parentNode;
       }
@@ -195,6 +243,24 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         emitChange();
       },
       getEl: () => elRef.current,
+      // Unlike execCommand, a CSS custom property accepts an arbitrary token
+      // stream and resolves it at use time — so `color` can be the literal
+      // string `var(--ns-fg-blue, #2563eb)` and the marker stays retunable from
+      // globals.css. Custom properties inherit, so setting it on the UL/OL
+      // reaches every li::marker inside, including nested checkbox items.
+      setListMarkerColor: (color: string | null) => {
+        const list = getActiveList();
+        if (!list) return false;
+        if (color === null) {
+          list.style.removeProperty('--rte-bullet');
+          // An emptied style attribute would otherwise persist as style="".
+          if (!list.getAttribute('style')?.trim()) list.removeAttribute('style');
+        } else {
+          list.style.setProperty('--rte-bullet', color);
+        }
+        emitChange();
+        return true;
+      },
       tableAddRow: (before: boolean) => {
         const cell = getActiveTableCell();
         if (!cell) return;
@@ -524,6 +590,30 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       }
     };
 
+    // One template for both paste routes.
+    const buildImageCard = (src: string) => {
+      const cardId = 'img-card-' + Date.now() + '-' + Math.random().toString(36).substring(2, 11);
+      return `
+        <div id="${cardId}" class="rte-image-card" contenteditable="false" draggable="true" style="display: inline-block; vertical-align: top; margin: 10px; border: 1px solid ${TOK.imgBorder}; box-shadow: ${TOK.imgShadow}; border-radius: 12px; background: ${TOK.imgSurface}; width: 260px; max-width: 100%; padding: 6px; box-sizing: border-box; position: relative;">
+          <div class="rte-image-wrapper" style="position: relative; width: 100%; height: auto; overflow: hidden; border: 1px solid ${TOK.imgBorder}; border-radius: 8px; display: block; background: ${TOK.imgSurface}; cursor: pointer;">
+            <img src="${src}" class="rte-image-img" style="width: 100%; height: auto; max-height: 380px; object-fit: contain; display: block; border-radius: 8px;" title="Click to view & edit notes" />
+            <div class="rte-image-preview-badge" style="position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.5); color: #fff; font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 999px; backdrop-filter: blur(2px); pointer-events: none; display: flex; align-items: center; gap: 4px;">Preview</div>
+            <div class="rte-resize-handle" style="position: absolute; bottom: 3px; right: 3px; width: 10px; height: 10px; cursor: se-resize; background: ${TOK.ink}; border: 1px solid #fff; border-radius: 2px; z-index: 20;"></div>
+          </div>
+          <button class="rte-image-delete" style="position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; background: ${TOK.danger}; color: #fff; border: none; font-size: 11px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; z-index: 20; box-shadow: ${TOK.imgShadow};">×</button>
+          <div class="rte-image-caption" contenteditable="true" style="margin-top: 6px; font-size: 12px; color: ${TOK.ink}; min-height: 20px; outline: none; padding: 2px 4px; border-radius: 4px;" placeholder="Write about this image..."></div>
+        </div>&nbsp;
+      `;
+    };
+
+    const insertImageCard = (rawSrc: string) => {
+      compressImage(rawSrc, (compressedSrc) => {
+        elRef.current?.focus();
+        document.execCommand('insertHTML', false, buildImageCard(compressedSrc));
+        emitChange();
+      });
+    };
+
     const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
       const items = e.clipboardData?.items;
       if (!items) return;
@@ -536,27 +626,64 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             const reader = new FileReader();
             reader.onload = (event) => {
               const rawSrc = event.target?.result as string;
-              if (rawSrc) {
-                compressImage(rawSrc, 800, 800, (compressedSrc) => {
-                  const cardId = 'img-card-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-                  const imageCardHtml = `
-                    <div id="${cardId}" class="rte-image-card" contenteditable="false" draggable="true" style="display: inline-block; vertical-align: top; margin: 10px; border: 1px solid ${TOK.imgBorder}; box-shadow: ${TOK.imgShadow}; border-radius: 12px; background: ${TOK.imgSurface}; width: 260px; max-width: 100%; padding: 6px; box-sizing: border-box; position: relative;">
-                      <div class="rte-image-wrapper" style="position: relative; width: 100%; height: auto; overflow: hidden; border: 1px solid ${TOK.imgBorder}; border-radius: 8px; display: block; background: ${TOK.imgSurface}; cursor: pointer;">
-                        <img src="${compressedSrc}" class="rte-image-img" style="width: 100%; height: auto; max-height: 380px; object-fit: contain; display: block; border-radius: 8px;" title="Click to view & edit notes" />
-                        <div class="rte-image-preview-badge" style="position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.5); color: #fff; font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 999px; backdrop-filter: blur(2px); pointer-events: none; display: flex; align-items: center; gap: 4px;">Preview</div>
-                        <div class="rte-resize-handle" style="position: absolute; bottom: 3px; right: 3px; width: 10px; height: 10px; cursor: se-resize; background: ${TOK.ink}; border: 1px solid #fff; border-radius: 2px; z-index: 20;"></div>
-                      </div>
-                      <button class="rte-image-delete" style="position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; background: ${TOK.danger}; color: #fff; border: none; font-size: 11px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; z-index: 20; box-shadow: ${TOK.imgShadow};">×</button>
-                      <div class="rte-image-caption" contenteditable="true" style="margin-top: 6px; font-size: 12px; color: ${TOK.ink}; min-height: 20px; outline: none; padding: 2px 4px; border-radius: 4px;" placeholder="Write about this image..."></div>
-                    </div>&nbsp;
-                  `;
-                  elRef.current?.focus();
-                  document.execCommand('insertHTML', false, imageCardHtml);
-                  emitChange();
-                });
-              }
+              if (rawSrc) insertImageCard(rawSrc);
             };
             reader.readAsDataURL(file);
+            return;
+          }
+        }
+      }
+
+      // Copying an image from a web page puts no image item on the clipboard —
+      // it arrives as an HTML fragment wrapping an <img src="https://…">. Without
+      // this branch such a paste produced a bare, uncardable, unpreviewable img.
+      const htmlPayload = e.clipboardData?.getData('text/html');
+      if (htmlPayload && /<img\b/i.test(htmlPayload)) {
+        const doc = new DOMParser().parseFromString(htmlPayload, 'text/html');
+        const imgs = Array.from(doc.querySelectorAll('img'));
+        // Only take over when the fragment is essentially just image(s); a pasted
+        // article with an inline image should keep its text.
+        const textLength = (doc.body.textContent || '').trim().length;
+        if (imgs.length > 0 && textLength < 200) {
+          const sources = imgs
+            .map(img => img.getAttribute('src') || '')
+            .filter(src => /^(https?:|data:image\/)/i.test(src));
+          if (sources.length > 0) {
+            e.preventDefault();
+            // Remote URLs taint the canvas, so compression is attempted with CORS
+            // and silently falls back to embedding the URL as-is.
+            sources.forEach(src => {
+              if (src.startsWith('data:')) {
+                insertImageCard(src);
+                return;
+              }
+              const probe = new Image();
+              probe.crossOrigin = 'anonymous';
+              probe.onload = () => {
+                try {
+                  const canvas = document.createElement('canvas');
+                  canvas.width = probe.naturalWidth;
+                  canvas.height = probe.naturalHeight;
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) throw new Error('no 2d context');
+                  ctx.fillStyle = '#ffffff';
+                  ctx.fillRect(0, 0, canvas.width, canvas.height);
+                  ctx.drawImage(probe, 0, 0);
+                  insertImageCard(canvas.toDataURL('image/png'));
+                } catch {
+                  // Cross-origin without CORS headers: keep the remote reference.
+                  elRef.current?.focus();
+                  document.execCommand('insertHTML', false, buildImageCard(src));
+                  emitChange();
+                }
+              };
+              probe.onerror = () => {
+                elRef.current?.focus();
+                document.execCommand('insertHTML', false, buildImageCard(src));
+                emitChange();
+              };
+              probe.src = src;
+            });
           }
         }
       }
@@ -576,9 +703,14 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         const startY = e.clientY;
         const startWidth = wrapper.offsetWidth;
 
+        // Opt both elements out of the !important width normalisation, otherwise
+        // the inline widths written below are outranked and the drag does nothing.
+        card.setAttribute('data-rte-sized', '');
+        wrapper.setAttribute('data-rte-sized', '');
+
         const handleMouseMove = (moveEvent: MouseEvent) => {
           const deltaX = moveEvent.clientX - startX;
-          const newWidth = Math.max(120, Math.min(800, startWidth + deltaX));
+          const newWidth = Math.max(120, Math.min(1200, startWidth + deltaX));
           wrapper.style.width = newWidth + 'px';
           card.style.width = newWidth + 'px';
         };
@@ -697,8 +829,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             margin: 0.15em 0;
             padding-left: 0.15em;
           }
+          /* --rte-bullet is an optional per-list override, written inline on the
+             UL/OL by setListMarkerColor and inherited down to every marker.
+             Unset, this resolves to the system marker colour. */
           .rte-root li::marker {
-            color: var(--rte-marker, #a3a29e);
+            color: var(--rte-bullet, var(--rte-marker, #78716c));
           }
           .rte-root mark {
             padding: 1px 5px;
@@ -726,9 +861,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             cursor: pointer;
             transition: background 0.12s, border-color 0.12s;
           }
+          /* A checked box follows the list's bullet colour, so a recoloured
+             checklist stays coherent instead of half-ink half-colour. */
           .rte-root li.rte-checkbox-item[data-checked='true']::before {
-            background: var(--rte-ink, #1c1c1a);
-            border-color: var(--rte-ink, #1c1c1a);
+            background: var(--rte-bullet, var(--rte-ink, #1c1c1a));
+            border-color: var(--rte-bullet, var(--rte-ink, #1c1c1a));
           }
           .rte-root li.rte-checkbox-item[data-checked='true']::after {
             content: '';
@@ -779,25 +916,34 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           .rte-root .rte-divider-container:not(.rte-v2) hr {
             border-color: var(--rte-divider, #d6d3d1) !important;
           }
+          /* The width normalisation has to be !important so cards persisted with
+             the old hard border and 280px inline width follow the token layer —
+             but an !important author rule also outranks a *normal* inline style,
+             which is what silently killed the resize drag. Scoping the width to
+             :not([data-rte-sized]) lets the drag opt a card out: it stamps
+             data-rte-sized, and its inline width then applies. Legacy cards
+             carry no such attribute, so they still get normalised. */
           .rte-root .rte-image-card {
             user-select: none;
-            width: 280px !important;
             max-width: 100% !important;
             height: auto !important;
-            /* !important so image cards persisted with the old hard border and
-               offset shadow follow the token layer too. */
             border: 1px solid var(--rte-border, #e8e8e5) !important;
             border-radius: 12px !important;
             background: var(--rte-surface, #ffffff) !important;
             box-shadow: var(--rte-shadow, 0 1px 3px rgba(15, 23, 42, 0.06)) !important;
           }
+          .rte-root .rte-image-card:not([data-rte-sized]) {
+            width: 280px !important;
+          }
           .rte-root .rte-image-wrapper {
-            width: 100% !important;
             height: auto !important;
             max-height: none !important;
             border: 1px solid var(--rte-border, #e8e8e5) !important;
             border-radius: 8px !important;
             background: var(--rte-surface, #ffffff) !important;
+          }
+          .rte-root .rte-image-wrapper:not([data-rte-sized]) {
+            width: 100% !important;
           }
           .rte-root .rte-resize-handle {
             background: var(--rte-ink, #1c1c1a) !important;
@@ -818,10 +964,14 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           .rte-root img {
             width: 100% !important;
             height: auto !important;
-            max-height: 420px !important;
             object-fit: contain !important;
             aspect-ratio: auto !important;
             border-radius: 8px !important;
+          }
+          /* A card the user has widened must not stay clipped at 420px. */
+          .rte-root .rte-image-card:not([data-rte-sized]) img,
+          .rte-root img:not(.rte-image-img) {
+            max-height: 420px !important;
           }
           .rte-root .rte-image-caption {
             min-height: 20px;

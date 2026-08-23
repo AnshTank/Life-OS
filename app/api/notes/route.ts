@@ -77,6 +77,10 @@ export async function POST(req: NextRequest) {
 }
 
 // PATCH /api/notes
+//
+// Two bulk shapes, both always scoped to the signed-in user:
+//   { noteIds: [...], folder?, section?, isFav? }  -> bulk actions on a selection
+//   { folderFrom, folderTo? }                      -> move/empty a whole folder
 export async function PATCH(req: NextRequest) {
   try {
     const session = await auth();
@@ -86,15 +90,45 @@ export async function PATCH(req: NextRequest) {
     const userId = (session.user as any).id;
 
     const body = await req.json();
-    const { folderFrom, folderTo, projectId } = body;
+    const { folderFrom, folderTo, projectId, noteIds, folder, section, isFav } = body;
 
+    const scopedProject = (projectId && projectId !== 'none' && projectId !== 'null') ? projectId : null;
+
+    // --- Selection path -----------------------------------------------------
+    if (Array.isArray(noteIds)) {
+      if (noteIds.length === 0) {
+        return NextResponse.json({ error: 'noteIds must not be empty' }, { status: 400 });
+      }
+      if (!noteIds.every((id: unknown) => typeof id === 'string' && id.length > 0)) {
+        return NextResponse.json({ error: 'noteIds must be an array of strings' }, { status: 400 });
+      }
+
+      // Explicit whitelist — a bulk endpoint must not be able to rewrite content.
+      const data: Record<string, any> = {};
+      if (typeof folder === 'string' && folder.trim()) data.folder = folder.trim();
+      if (section !== undefined) data.section = (typeof section === 'string' && section.trim()) ? section.trim() : null;
+      if (typeof isFav === 'boolean') data.isFav = isFav;
+
+      if (Object.keys(data).length === 0) {
+        return NextResponse.json({ error: 'Nothing to update: pass folder, section or isFav' }, { status: 400 });
+      }
+
+      const result = await prisma.note.updateMany({
+        where: { userId, id: { in: noteIds } },
+        data,
+      });
+
+      return NextResponse.json({ success: true, count: result.count });
+    }
+
+    // --- Whole-folder path (used by folder rename / delete) -----------------
     if (!folderFrom) {
-      return NextResponse.json({ error: 'folderFrom is required' }, { status: 400 });
+      return NextResponse.json({ error: 'folderFrom or noteIds is required' }, { status: 400 });
     }
 
     const where: any = { userId, folder: folderFrom };
-    if (projectId && projectId !== 'none' && projectId !== 'null') {
-      where.projectId = projectId;
+    if (scopedProject) {
+      where.projectId = scopedProject;
     }
 
     const result = await prisma.note.updateMany({

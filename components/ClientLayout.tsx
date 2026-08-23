@@ -10,6 +10,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { LandingPage } from '@/views/LandingPage';
 import { SessionProvider } from 'next-auth/react';
 import { SettingChangeOverlay } from '@/components/SettingChangeOverlay';
+import { cn } from '@/lib/utils';
 
 function LayoutContent({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useApp();
@@ -32,6 +33,14 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   const handleLogin = () => {
     router.push('/dashboard');
   };
+
+  // Immersive routes own the whole viewport: they lay themselves out against
+  // 100dvh and manage their own scrolling. The shared `pt-12 pb-8` wrapper would
+  // make the document 100dvh + 80px tall, so the *window* scrolls by 80px no
+  // matter what the page does — that is the dead space above the Notes suite.
+  // `min-h-screen` has to go too: leaving it keeps the body 100vh tall and
+  // reintroduces a scrollbar on mobile, where 100dvh < 100vh.
+  const isImmersive = /^\/projects\/[^/]+\/notes\/?$/.test(pathname || '');
 
   let content;
   if (!isAuthenticated) {
@@ -64,8 +73,8 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
         />
         <JarvisCompanion currentPage={pathname?.replace('/', '') || 'dashboard'} />
         <QuarterUtilityMenu />
-        
-        <main className="pt-12 pb-8 px-4 sm:px-6 lg:px-8">
+
+        <main className={isImmersive ? 'h-full' : 'pt-12 pb-8 px-4 sm:px-6 lg:px-8'}>
           {children}
         </main>
       </>
@@ -73,7 +82,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#fdfbf7]">
+    <div className={cn('bg-[#fdfbf7]', isImmersive ? 'h-[100dvh] overflow-hidden' : 'min-h-screen')}>
       {content}
       <SettingChangeOverlay />
       <Toaster 

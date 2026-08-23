@@ -628,6 +628,59 @@ body {
   --ns-canvas-block: #fffdf7;
   --ns-canvas-group: #f7f7f5;
 
+  /* Canvas group colour tags. Also persisted into canvasData as `var()`
+     references, so retuning here restyles every existing canvas. */
+  --ns-canvas-group-1: #fef3c7;
+  --ns-canvas-group-2: #dbeafe;
+  --ns-canvas-group-3: #dcfce7;
+  --ns-canvas-group-4: #ede9fe;
+  --ns-canvas-group-5: #ffe4e6;
+
+  /* --- Zones -------------------------------------------------------------
+     Borderless does not mean flat: each column gets its own tint so the eye
+     can find the seam without a rule being drawn. Sidebar runs warm, the note
+     list cool, and the editor stays pure white so body text sits on paper.  */
+  --ns-zone-sidebar: #fbf8f3;
+  --ns-zone-sidebar-edge: #f2ece3;
+  --ns-zone-list: #f8fafb;
+  --ns-zone-list-edge: #e8eef1;
+  --ns-zone-editor: #ffffff;
+  /* Toolbars sit on a surface you can actually see against the white editor. */
+  --ns-zone-toolbar: #f2f2ef;
+  --ns-zone-footer: #f8f8f6;
+
+  /* --- Section headers ---------------------------------------------------- */
+  --ns-head-folders: #b4530a;
+  --ns-head-recent: #1d4ed8;
+  --ns-head-group-bg: #fdf1dd;
+  --ns-head-group-fg: #92400e;
+  --ns-head-count-bg: #f4ead9;
+  --ns-head-count-fg: #7c3d08;
+
+  /* --- Button affordance -------------------------------------------------
+     A control needs a resting surface, not just a hover state. These four
+     tokens drive every icon button, chip and tool button through the `NS`
+     recipe map, so the whole page's affordance is retuned from right here. */
+  --ns-btn-surface: #ffffff;
+  --ns-btn-surface-hover: #f7f7f4;
+  --ns-btn-ring: #e2e0db;
+  --ns-btn-shadow: 0 1px 1.5px rgba(15, 23, 42, 0.06);
+  --ns-btn-shadow-hover: 0 2px 5px -1px rgba(15, 23, 42, 0.12);
+
+  /* Destructive intent — remove-a-pill ×, close-the-lightbox, delete. */
+  --ns-danger: #e11d48;
+  --ns-danger-soft: #ffe4e6;
+
+  /* --- Chrome geometry ---------------------------------------------------
+     Tuned to FloatingNav's real fixed geometry (components/FloatingNav.tsx):
+     `.fn-root` is top:24px/left:24px with a 48px logo plus the "Life OS"
+     wordmark; `.fn-top-right` is top:24px/right:24px with two 44px buttons
+     and a 12px gap. Mobile shrinks both at the 768px breakpoint.           */
+  --ns-chrome-top: 60px;
+  --ns-nav-left: 16px;
+  --ns-nav-right: 16px;
+  --ns-nav-top: 14px;
+
   /* Editor body (consumed by RichTextEditor.tsx — both its <style> block and
      the inline styles it writes into saved note HTML, which is why every value
      here has to be a plain colour/shadow a `var()` can resolve to). */
@@ -646,7 +699,10 @@ body {
   --rte-heading-font: inherit;
   --rte-h1-ink: #1c1c1a;
   --rte-h2-ink: #292524;
-  --rte-marker: #a3a29e;
+  /* Default bullet/number colour. #a3a29e read as an accident rather than a
+     choice; this is dark enough to look deliberate. Per-list overrides are
+     written as an inline --rte-bullet on the ul/ol and win over this. */
+  --rte-marker: #78716c;
 
   /* Pills — tone is picked by hashing the pill's text */
   --rte-pill-shadow: none;
@@ -668,6 +724,17 @@ body {
   --rte-grad-4: #10b981;
 }
 
+/* Above 768px FloatingNav's band is y 24→72 and the right cluster is ~124px
+   wide, so the notes header has to be inset to sit beside it, not under it.  */
+@media (min-width: 769px) {
+  .notes-suite {
+    --ns-chrome-top: 80px;
+    --ns-nav-left: 210px;
+    --ns-nav-right: 124px;
+    --ns-nav-top: 26px;
+  }
+}
+
 /* Quiet scrollbars inside the Notes Suite */
 .notes-suite ::-webkit-scrollbar {
   width: 8px;
@@ -685,5 +752,17 @@ body {
 .notes-suite ::-webkit-scrollbar-thumb:hover {
   background: var(--ns-ink-muted);
   background-clip: content-box;
+}
+
+/* The merged tags/backlinks/stats footer is a single 36px row, so an 8px
+   horizontal scrollbar inside it would eat a quarter of the pill height. These
+   lanes scroll, but invisibly. */
+.notes-suite .ns-strip-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.notes-suite .ns-strip-scroll::-webkit-scrollbar {
+  height: 0;
+  width: 0;
 }
 
